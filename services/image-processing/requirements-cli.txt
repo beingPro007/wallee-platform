@@ -1,0 +1,4 @@
+# GPU/runtime dependencies are declared in app/core/images.py and built by Modal.
+modal==1.4.2
+fastapi
+pydantic

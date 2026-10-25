@@ -1,0 +1,47 @@
+[
+  {
+    "path": "services/image-processing/RealESRGAN/weights/RealESRGAN_x2.pth",
+    "sha256": "c830d067d54fc767b9543a8432f36d91bc2de313584e8bbfe4ac26a47339e899",
+    "bytes": 67061725
+  },
+  {
+    "path": "services/image-processing/RealESRGAN/weights/RealESRGAN_x8.pth",
+    "sha256": "8b72fb469d12f05a4770813d2603eb1b550f40df6fb8b37d6c7bc2db3d2bff5e",
+    "bytes": 67189359
+  },
+  {
+    "path": "services/image-processing/embeddings/category_embeddings.npy",
+    "sha256": "0ce05e237dd17553e0e158f0277856b8dd42d76cacf71d6ada4d72e754ea6f89",
+    "bytes": 43136
+  },
+  {
+    "path": "services/image-processing/embeddings/category_names.npy",
+    "sha256": "c12a0914e8292963098040b8b9e92754e2d4ddfa71d43d8b10c8496aa303042b",
+    "bytes": 744
+  },
+  {
+    "path": "services/image-processing/embeddings/paths.npy",
+    "sha256": "3c107b2308570449192d532d0a90260a409adbe2b09ef2626529945d361989a4",
+    "bytes": 1016576
+  },
+  {
+    "path": "services/image-processing/embeddings/vectors.npy",
+    "sha256": "e4efc0295558f2aa68d78b7955d3964b1ecffa9c549eeb16e0ea6970e549eb1a",
+    "bytes": 10842240
+  },
+  {
+    "path": "services/image-processing/notebooks/orientation_model.pkl",
+    "sha256": "33ee6bc91c65765b44739e78b5676121844689ef126b982b5b4c23289b60682d",
+    "bytes": 39369
+  },
+  {
+    "path": "services/image-processing/notebooks/scaler.pkl",
+    "sha256": "9e93e6e7ff34c863f7dee88429ec6cea4db7b93fdbc971df2a73b141558ff6d6",
+    "bytes": 711
+  },
+  {
+    "path": "services/search-encoder/model.onnx",
+    "sha256": "f0c4757292b0980e79ef9b673bbe1bd2a75971f2faba8225e66826eeae703026",
+    "bytes": 125456502
+  }
+]

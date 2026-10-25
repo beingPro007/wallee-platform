@@ -1,0 +1,48 @@
+# Credentials and machine-specific settings, at every depth.
+.env
+.env.*
+!.env.example
+!.env.*.example
+*.pem
+*.key
+cookies.txt
+session-*
+.aws/
+.ssh/
+.codex/
+.claude/
+.agents/
+.vercel/
+.wrangler/
+.dev.vars
+.dev.vars.*
+!.dev.vars.example
+# Dependencies and generated output.
+node_modules/
+.next/
+out/
+dist/
+build/
+coverage/
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+*.tsbuildinfo
+.DS_Store
+*.log
+# Model/data artifacts are restored separately, never stored in Git.
+*.pth
+*.pt
+*.onnx
+*.pkl
+*.npy
+images/
+checkpoints/
+mobile_assets/
+# Local backups and database/runtime state.
+*.bundle
+*.dump
+*.sqlite*
+.temp/
