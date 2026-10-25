@@ -1,6 +1,6 @@
 # Operations dashboard
 
-Read-only admin preview in `apps/admin`, using the existing Vercel project. The production alias is not changed by a preview deployment. Existing processing callbacks remain for compatibility; the new dashboard exposes no processing controls.
+Read-only admin dashboard in `apps/admin`, deployed to production on the existing Vercel project. Production URL: https://insta-s3-client-uploader-one.vercel.app. Existing processing callbacks remain for compatibility; the new dashboard exposes no processing controls.
 
 ## Data and access
 
@@ -30,6 +30,12 @@ The initial inventory also reports 36 missing v1 references and 36 desktop objec
 
 Preview: https://insta-s3-client-uploader-no2ena3b8-gautam-ranas-projects.vercel.app
 
-Deployment `dpl_3yti7RzE9xABNvRh2fzT1yt54A1k` is READY. Vercel preview protection is enabled, in addition to application authentication. The production alias still points to `dpl_GKtnqHE6zmjqHvK5JL2P1R6waRbj`. Production build and TypeScript passed; the runtime dependency audit reports zero vulnerabilities. Temporary visual-test routes were removed before building and return 404. All six local production operations endpoints return 401 when signed out; server secrets were absent from browser bundles.
+Deployment `dpl_3yti7RzE9xABNvRh2fzT1yt54A1k` is READY. Vercel preview protection is enabled, in addition to application authentication. At preview delivery, the production alias pointed to `dpl_GKtnqHE6zmjqHvK5JL2P1R6waRbj`. Production build and TypeScript passed; the runtime dependency audit reports zero vulnerabilities. Temporary visual-test routes were removed before building and return 404. All six local production operations endpoints return 401 when signed out; server secrets were absent from browser bundles.
 
 Deployed preview smoke checks: sign-in returned 200; the costs API returned application-level 401 without a Supabase session, after authorized Vercel CLI access through deployment protection.
+
+## Production delivery (2026-10-25)
+
+User authorized full deployment. Release commit `5d5e3d6` is deployed as `dpl_AqNoUCa29w7xC7U2Uc5AxHh2rj3k`, target production, status READY. The stable production alias https://insta-s3-client-uploader-one.vercel.app is verified against the Vercel API. Production environment variables were configured explicitly with the verified Gautam identity, Wallee database, existing admin authentication project and the two approved administrator emails. Existing callback secrets were preserved.
+
+Production smoke checks passed: `/` redirects to `/protected`, signed-out `/protected` redirects to sign-in, sign-in returns 200 with the new form, and all six operations API views return 401 with private/no-store headers without a Supabase session. Temporary test routes return 404. A browser check confirmed the deployed email/password form. Actual approved-user login still requires the user's existing credentials; no password was requested or used. The prior production deployment `dpl_GKtnqHE6zmjqHvK5JL2P1R6waRbj` remains the rollback reference. The classifier conflict documented above is not fixed by this frontend release.
