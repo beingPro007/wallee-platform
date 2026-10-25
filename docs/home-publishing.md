@@ -27,3 +27,7 @@ Publishing regression tests cover preserved membership after queue cleanup, miss
 Read-only live previews on 2026-10-25: Baki 74, Fight Club 22, Old is Gold 11, Cozy Nature 8. All existing entries were retained, with zero missing originals or thumbnails. Fight Club's metadata count is 6 while its catalog contains 22; the next successful publish will correct that count. These previews did not change the existing sections or S3 objects.
 
 Browser checks used real preview data and simulated writes, covering sidebar navigation, build preview, publish response, rename, denied-save feedback, reordering, hidden-section creation and mobile overflow. No real administrator login/password was available for a production mutation test. Real signed-in saving/publishing is subject to the existing admin database RLS permissions.
+
+## Production release
+
+Release commit `4a8aea8` deployed successfully to production as `dpl_Fh5jWzm6t6gnsXrnkqfh3VaE5Huq`. URL: https://insta-s3-client-uploader-one.vercel.app/protected?view=home. The prior dashboard deployment `dpl_AqNoUCa29w7xC7U2Uc5AxHh2rj3k` remains the rollback reference. Production build, ten publishing regression scenarios, allowlist/API boundary checks and browser interaction checks passed. Existing live home section rows were compared with the pre-change snapshot and remained unchanged during testing.
