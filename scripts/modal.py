@@ -7,7 +7,7 @@ import subprocess
 
 ROOT = Path(__file__).resolve().parents[1]
 SERVICE = ROOT / 'services/image-processing'
-TARGETS = {'classifier': 'main.py', 'orientation': 'orientation.py', 'upscaler': 'upscaler.py', 'worker': 'worker_modal.py', 'sync': 'sync.py', 'categories': 'app/utils/categories.py'}
+TARGETS = {'classifier': 'main.py', 'orientation': 'orientation.py', 'catalog-orientation': 'catalog_orientation.py', 'upscaler': 'upscaler.py', 'worker': 'worker_modal.py', 'sync': 'sync.py', 'categories': 'app/utils/categories.py'}
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)

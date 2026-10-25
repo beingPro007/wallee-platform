@@ -1,5 +1,5 @@
 """
-Modal entrypoint for the orientation detector (RotNet / ResNet18).
+Modal entrypoint for the orientation detector (RotNet / ResNet50).
 
 Predicts how many degrees an image is rotated from upright and whether it's a
 rotated landscape that should become an 8K desktop wallpaper. CPU-only and cheap.
