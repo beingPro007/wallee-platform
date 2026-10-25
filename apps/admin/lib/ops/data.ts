@@ -141,7 +141,7 @@ const master = unstable_cache(
     await identity();
     return manifest("wallpapers_v2.json");
   },
-  ["ops-v2-v1"],
+  ["ops-v2-v2-desktop-reset"],
   { revalidate: 300 },
 );
 function purpose(name: string) {
@@ -272,7 +272,7 @@ export const storage = unstable_cache(
       fetchedAt: now(),
     };
   },
-  ["ops-storage-v2"],
+  ["ops-storage-v3-desktop-reset"],
   { revalidate: 900 },
 );
 
@@ -472,7 +472,7 @@ const desktopInventory = unstable_cache(
     } while (token);
     return { inventory, fetchedAt: now() };
   },
-  ["ops-desktop-inventory-v1"],
+  ["ops-desktop-inventory-v2-desktop-reset"],
   { revalidate: 300 },
 );
 

@@ -26,10 +26,11 @@ export default async function Protected({
       </main>
     );
   }
+  const view = (await searchParams).view;
   return (
     <OperationsDashboard
       email={email}
-      initialView={(await searchParams).view === "home" ? "home" : "overview"}
+      initialView={view === "home" || view === "import" ? view : "overview"}
     />
   );
 }

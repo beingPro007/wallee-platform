@@ -72,3 +72,6 @@ WORKER_DATA_DIR = os.getenv("WORKER_DATA_DIR", "/data")
 
 # Accepted image mime types for upload.
 VALID_IMAGE_MIMES = ("image/jpeg", "image/png", "image/webp")
+
+# Desktop publishing is paused during the architecture reset. Phone processing stays active.
+DESKTOP_PIPELINE_PAUSED = os.getenv("DESKTOP_PIPELINE_PAUSED", "1") != "0"

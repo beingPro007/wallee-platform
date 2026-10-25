@@ -8,7 +8,8 @@
     "start": "next start",
     "typecheck": "tsc --noEmit",
     "test:access": "node tests/ops-access.cjs",
-    "test:publishing": "node tests/home-publishing.cjs && node tests/home-access.cjs"
+    "test:publishing": "node tests/home-publishing.cjs && node tests/home-access.cjs",
+    "test:ingestion": "node tests/ingestion.cjs"
   },
   "dependencies": {
     "@aws-sdk/client-cloudwatch": "^3.1156.0",

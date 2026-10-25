@@ -18,6 +18,7 @@ from ..core.config import (
     DEDUP_ENABLED,
     DEDUP_THRESHOLD,
     DESKTOP_ENABLED,
+    DESKTOP_PIPELINE_PAUSED,
     DESKTOP_AUTO_PUBLISH,
     DESKTOP_CONFIDENCE,
     WALLHAVEN_API_KEY,
@@ -299,7 +300,9 @@ class ETLService:
         # wallpapers already (upright, no rotation). Other sources rely on the
         # RotNet detector to catch rotated-landscapes.
         is_desktop, fix_rotation, needs_review, ori = False, 0, False, {}
-        if source == "wallhaven":
+        if DESKTOP_PIPELINE_PAUSED and width > height:
+            is_desktop = True
+        elif source == "wallhaven":
             if width >= height:  # portrait Wallhaven images stay on the mobile/phone path
                 is_desktop = True   # trusted landscape source → no review needed
         elif self.desktop_enabled:
@@ -310,6 +313,11 @@ class ETLService:
                 # to auto-publish, so stage these for human review by default.
                 needs_review = not self.desktop_auto_publish
                 print(f"🖥️  Rotated-landscape {filename}: rotate {fix_rotation}° (conf={ori.get('confidence')})")
+
+        if is_desktop and DESKTOP_PIPELINE_PAUSED:
+            if getattr(self, "trace", None):
+                self.trace.stage("desktop_paused", "Desktop image skipped while the desktop pipeline is paused", {"file": filename}, "warning")
+            return {"status": "desktop_paused", "filename": filename}
 
         if is_desktop:
             category = session_slug or "desktop"
@@ -357,6 +365,7 @@ class ETLService:
         skipped: List[dict] = []
         desktop: List[dict] = []
         review: List[str] = []
+        paused: List[str] = []
         with ThreadPoolExecutor(max_workers=ETL_MAX_WORKERS) as executor:
             future_to_file = {
                 executor.submit(self._process_file, f, session_slug, source): f
@@ -376,13 +385,15 @@ class ETLService:
                     elif status == "desktop":
                         desktop.append({"raw_s3_key": result["raw_s3_key"],
                                         "category": result["category"]})
+                    elif status == "desktop_paused":
+                        paused.append(result["filename"])
                     elif status == "desktop_review":
                         review.append(result["review_key"])
                 except Exception as e:
                     if getattr(self, "trace", None):
                         self.trace.stage("processing", "Image processing failed", {"file": os.path.basename(f), "error_type": type(e).__name__}, "error")
                     print(f"⚠️ File error processing {f}: {e}")
-        return {"uploads": uploads, "skipped": skipped, "desktop": desktop, "review": review}
+        return {"uploads": uploads, "skipped": skipped, "desktop": desktop, "review": review, "paused": paused}
 
     def _spawn_desktop_upscale(self, desktop_items: List[dict]) -> None:
         """Fire-and-forget the 8K desktop upscale for rotated-landscape images.
@@ -577,6 +588,7 @@ class ETLService:
             skipped = result["skipped"]
             desktop = result["desktop"]
             review = result["review"]
+            paused = result.get("paused", [])
 
             # Kick off the 8K desktop upscale for trusted desktop images
             # (wallhaven landscapes / auto-publish). Review candidates wait.
@@ -588,13 +600,14 @@ class ETLService:
                 f"{len(desktop)} desktop, {len(review)} staged for review, "
                 f"{len(skipped)} skipped as duplicates"
             )
-            self.trace.finish(message="Ingestion finished; downstream processing tracked separately", details={"uploaded": len(uploads), "desktop": len(desktop), "review": len(review), "duplicates": len(skipped), "duration_seconds": round(duration, 2)})
+            self.trace.finish(status="partial" if paused else "succeeded", message="Ingestion finished; desktop processing paused" if paused else "Ingestion finished; downstream processing tracked separately", details={"desktop_paused": len(paused), "uploaded": len(uploads), "desktop": len(desktop), "review": len(review), "duplicates": len(skipped), "duration_seconds": round(duration, 2)})
             return {
                 "uploads": uploads,
                 "count": len(uploads),
                 "desktop": desktop,
                 "desktop_count": len(desktop),
                 "review_count": len(review),
+                "desktop_paused_count": len(paused),
                 "skipped": skipped,
                 "skipped_count": len(skipped),
                 "duration_seconds": round(duration, 2),

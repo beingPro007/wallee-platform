@@ -111,6 +111,10 @@ class Query:
 
 class PipelineTests(unittest.TestCase):
     def setUp(self):
+        for module in ["app.services.etl", "app.services.upscaler"]:
+            pause_patch = patch(module + ".DESKTOP_PIPELINE_PAUSED", False)
+            pause_patch.start()
+            self.addCleanup(pause_patch.stop)
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
         self.image = Path(tmp.name) / 'sample.jpg'
@@ -303,6 +307,28 @@ class PipelineTests(unittest.TestCase):
         for name in ['main', 'worker_modal', 'orientation', 'upscaler', 'sync']:
             with self.subTest(entrypoint=name):
                 importlib.import_module(name)
+
+    def test_desktop_pause_skips_wallhaven_without_upload_or_phone_queue(self):
+        Image.new('RGB', (900, 600)).save(self.image)
+        with patch('app.services.etl.DESKTOP_PIPELINE_PAUSED', True):
+            result = self.ingest(source='wallhaven')
+        self.assertEqual(result['status'], 'desktop_paused')
+        self.assertEqual(self.s3.objects, {})
+        self.assertEqual(self.db.rows, {})
+
+    def test_desktop_pause_blocks_direct_upscaler_before_storage_writes(self):
+        service = self.upscaler()
+        with patch('app.services.upscaler.DESKTOP_PIPELINE_PAUSED', True):
+            with self.assertRaisesRegex(RuntimeError, 'paused'):
+                asyncio.run(service.upscale_desktop_direct([{'raw_s3_key':'raw_images/desktop/test.jpg'}]))
+        self.assertEqual(self.s3.objects, {})
+
+    def test_desktop_pause_keeps_portrait_phone_ingestion_active(self):
+        with patch('app.services.etl.DESKTOP_PIPELINE_PAUSED', True):
+            result = self.ingest(source='pinterest')
+        self.assertEqual(result['status'], 'uploaded')
+        self.assertTrue(self.s3.objects)
+
 
 
 if __name__ == '__main__':

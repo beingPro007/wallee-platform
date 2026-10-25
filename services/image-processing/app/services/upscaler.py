@@ -19,6 +19,7 @@ from ..core.config import (
     AWS_BUCKET_NAME,
     UPSCALER_BATCH_SIZE,
     DESKTOP_POST_WORKERS,
+    DESKTOP_PIPELINE_PAUSED,
     DESKTOP_GPU_WORKERS,
     UPSCALER_PATCH_BATCH,
 )
@@ -547,6 +548,8 @@ class UpscalerService:
         Downloads run ahead into a queue; each GPU worker upscales with its own
         model copy (so several run concurrently — one image's CPU patch-stitch
         overlaps another's GPU forward); post workers encode/upload/embed."""
+        if DESKTOP_PIPELINE_PAUSED:
+            raise RuntimeError("Desktop processing is paused pending architecture redesign")
         trace = await asyncio.to_thread(OperationTrace, "desktop", items[0].get("raw_s3_key") if items else None)
         await asyncio.to_thread(trace.stage, "upscaling", "Desktop processing started", {"images": len(items), "quality": quality})
         target = DESKTOP_TARGET_8K if quality == "8k" else DESKTOP_TARGET_4K

@@ -42,6 +42,7 @@ import {
   X,
   Zap,
 } from "lucide-react";
+import { ImportWallpapers } from "./import-wallpapers";
 import { HomePublishing } from "./home-publishing";
 import type { LucideIcon } from "lucide-react";
 import { getSupabaseClient } from "@/lib/supabase/client";
@@ -59,6 +60,7 @@ import type {
 import { ago, bytes, date, money, number, title } from "@/lib/ops/format";
 
 type View =
+  | "import"
   | "home"
   | "overview"
   | "pipeline"
@@ -72,6 +74,12 @@ const NAV: { id: View; label: string; icon: LucideIcon; group: string }[] = [
     id: "overview",
     label: "Overview",
     icon: LayoutDashboard,
+    group: "WORKSPACE",
+  },
+  {
+    id: "import",
+    label: "Import wallpapers",
+    icon: ArrowDownLeft,
     group: "WORKSPACE",
   },
   { id: "home", label: "Home & Publishing", icon: Layers3, group: "WORKSPACE" },
@@ -541,7 +549,7 @@ export function OperationsDashboard({
   initialView = "overview",
 }: {
   email: string;
-  initialView?: "overview" | "home";
+  initialView?: "overview" | "home" | "import";
 }) {
   const [view, setView] = useState<View>(initialView);
   const [mobileNav, setMobileNav] = useState(false);
@@ -565,6 +573,7 @@ export function OperationsDashboard({
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
   const heading = {
+    import: "Import wallpapers",
     home: "Home & Publishing",
     overview: "Operations overview",
     pipeline: "Pipeline & activity",
@@ -574,6 +583,8 @@ export function OperationsDashboard({
     system: "System health",
   }[view];
   const description = {
+    import:
+      "Scrape source URLs into automatic categories or a curated home collection.",
     home: "Curate the mobile home screen, preview collections, and publish with confidence.",
     overview: "A clear view of your pipeline, storage, and infrastructure.",
     pipeline: "Follow every recorded run, from source media to publication.",
@@ -698,7 +709,7 @@ export function OperationsDashboard({
               <h1>{heading}</h1>
               <p>{description}</p>
             </div>
-            {view !== "home" && (
+            {view !== "home" && view !== "import" && (
               <div className="page-actions">
                 <span className="live-label">
                   <Radio size={13} /> Activity refreshes every 30s
@@ -807,7 +818,7 @@ export function OperationsDashboard({
                     </span>
                     <span>
                       <span className="tiny-dot" />
-                      Desktop dispatches directly
+                      Desktop paused · redesign
                     </span>
                   </div>
                 </Panel>
@@ -957,6 +968,12 @@ export function OperationsDashboard({
           )}
           {view === "library" && <LibraryPage />}
           {view === "home" && <HomePublishing />}
+          {view === "import" && (
+            <ImportWallpapers
+              onHome={() => navigate("home")}
+              onActivity={() => navigate("pipeline")}
+            />
+          )}
           {view === "system" && (
             <SystemPage
               pipeline={pipeline.data}

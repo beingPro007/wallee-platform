@@ -2,6 +2,7 @@ import modal
 from fastapi import Request
 from typing import List
 from app.core.images import upscaler_image
+from app.core.config import DESKTOP_PIPELINE_PAUSED
 
 app = modal.App(
     "wall-e-upscaler",
@@ -25,6 +26,8 @@ class UpscalerWorkerModal:
     async def run_desktop_direct(self, items: List[dict], quality: str = "8k"):
         """Upscale rotated-landscape images straight to 8K desktop wallpapers.
         Called by the ETL worker via .spawn(); no queue table involved."""
+        if DESKTOP_PIPELINE_PAUSED:
+            raise RuntimeError("Desktop processing is paused pending architecture redesign")
         return await self.service.upscale_desktop_direct(items, quality=quality)
 
 @app.function(image=upscaler_image)
@@ -33,6 +36,8 @@ async def approve_desktop(request: Request):
     """Human-review approval: given desktop_review/ S3 key(s), upscale them to
     8K desktop wallpapers (and the upscaler deletes the review copy). Body:
     {"keys": ["desktop_review/cat/file.jpg", ...]} or {"key": "..."}."""
+    if DESKTOP_PIPELINE_PAUSED:
+        return {"status": "paused", "message": "Desktop processing is paused pending architecture redesign"}
     try:
         payload = await request.json()
         keys = payload.get("keys") or ([payload["key"]] if payload.get("key") else [])
