@@ -1,6 +1,8 @@
-.PHONY: help admin-install admin-dev admin-build admin-check proxy-install proxy-dev check check-assets deploy
+PYTHON ?= python3
+
+.PHONY: help admin-install admin-dev admin-build admin-check check check-assets test deploy
 help:
-	@echo "admin-install | admin-dev | admin-build | admin-check | proxy-install | proxy-dev | check | check-assets | deploy"
+	@echo "admin-install | admin-dev | admin-build | admin-check | check | check-assets | test | deploy"
 admin-install:
 	npm ci --prefix apps/admin
 admin-dev:
@@ -9,13 +11,12 @@ admin-build:
 	npm run build --prefix apps/admin
 admin-check:
 	npm run typecheck --prefix apps/admin
-proxy-install:
-	npm ci --prefix services/supabase-proxy
-proxy-dev:
-	npm run dev --prefix services/supabase-proxy
 check:
-	python3 scripts/check.py
+	$(PYTHON) scripts/check.py
 check-assets:
-	python3 scripts/assets.py check
+	$(PYTHON) scripts/assets.py check
 deploy:
-	python3 scripts/modal.py deploy all
+	$(PYTHON) scripts/modal.py deploy all
+
+test:
+	$(PYTHON) -m unittest discover -s tests -v

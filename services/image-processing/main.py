@@ -1,7 +1,6 @@
 import modal
-from fastapi import File, UploadFile, Form
+from fastapi import File, Form
 from app.core.images import classifier_image
-from app.models.schemas import SearchQuery
 
 app = modal.App("zero-shot-classifier-api")
 
@@ -28,7 +27,7 @@ class ZeroShotServiceModal:
     def check_duplicate_rpc(self, file_bytes: bytes, filename: str, threshold: float = 0.95):
         return self.service.check_duplicate(file_bytes, filename, threshold)
 
-    # ── FastAPI endpoints (for external HTTP callers, e.g. search UI). ──────
+    # ── FastAPI endpoints (for external image-processing callers). ──────
     @modal.fastapi_endpoint(method="POST")
     async def classify(
         self,
@@ -45,7 +44,3 @@ class ZeroShotServiceModal:
         threshold: float = Form(0.95),
     ):
         return self.service.check_duplicate(file, filename, threshold)
-
-    @modal.fastapi_endpoint(method="POST")
-    async def search(self, search_query: SearchQuery):
-        return self.service.search(search_query.query)

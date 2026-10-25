@@ -1,6 +1,5 @@
 import io
 import os
-import json
 import torch
 import numpy as np
 import open_clip
@@ -87,47 +86,6 @@ class ZeroShotService:
             "db_path": final_db_path, 
             "id": response.data[0]['id'] if response.data else None
         }
-
-    def search(self, query: str):
-        # Fetch dynamic data from Supabase
-        response = self.supabase.table("wallpapers").select("file_path", "embedding").execute()
-        
-        # Filter out rows with missing or malformed embeddings
-        valid_data = [
-            row for row in response.data 
-            if row.get("embedding") is not None and isinstance(row.get("embedding"), list)
-        ]
-        
-        if not valid_data:
-            return {"query": query, "results": []}
-
-        # Convert list of embeddings to tensor
-        existing_embeddings = torch.tensor(
-            [row["embedding"] for row in valid_data],
-            dtype=torch.float32
-        ).to(self.device)
-        
-        file_paths = [row["file_path"] for row in valid_data]
-
-        tokenizer = open_clip.get_tokenizer(CLASSIFIER_MODEL_NAME)
-        tokens = tokenizer([query]).to(self.device)
-        
-        with torch.inference_mode():
-            query_features = self.model.encode_text(tokens)
-            query_features /= query_features.norm(dim=-1, keepdim=True)
-            
-            logit_scale = self.model.logit_scale.exp().item()
-            similarities = logit_scale * (query_features @ existing_embeddings.T)
-            
-            k = min(10, len(file_paths))
-            values, indices = similarities[0].topk(k)
-            
-            results = [
-                {"image_path": file_paths[idx.item()], "similarity": val.item()}
-                for val, idx in zip(values, indices)
-            ]
-
-        return {"query": query, "results": results}
 
     def _find_similar(self, image_embedding, threshold, exclude_file_path=""):
         """Return the closest wallpaper above `threshold` via the pgvector-backed

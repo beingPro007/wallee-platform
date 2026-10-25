@@ -8,20 +8,5 @@
     "source": "insta-s3-client-uploader",
     "destination": "apps/admin",
     "source_head": "8f503448fe6b5c1d80322a4946134c286e06bc30"
-  },
-  {
-    "source": "wallee-search",
-    "destination": "services/search-encoder",
-    "source_head": "6c0508c9457cbc22656427004b7bf983a1ab7d94"
-  },
-  {
-    "source": "walleeClassification",
-    "destination": "legacy/gradio-classifier",
-    "source_head": "bcccee9c9fae0e5a09b76e350fc3abcd1779c630"
-  },
-  {
-    "source": "wallee-supabase-proxy",
-    "destination": "services/supabase-proxy",
-    "source_head": null
   }
 ]

@@ -49,18 +49,11 @@ CLASSIFY_SIMILAR_THRESHOLD = 0.95
 THUMB_WIDTH = 400
 THUMB_QUALITY = 80
 
-# HTTP endpoint of the deployed zero-shot classifier (main.py `classify`).
-# Used to derive the category folder when no SESSION_SLUG is set.
-MODAL_CLASSIFY_URL = os.getenv("MODAL_API_URL")
-
 # De-duplication: before uploading, embed the image and query the
 # `match_wallpapers` Supabase RPC; if a wallpaper already exists with
 # cosine similarity > DEDUP_THRESHOLD, skip the upload entirely.
 DEDUP_ENABLED = os.getenv("DEDUP_ENABLED", "1") != "0"
 DEDUP_THRESHOLD = float(os.getenv("DEDUP_THRESHOLD", "0.95"))
-# HTTP endpoint of the classifier's `check_duplicate` (main.py). If unset,
-# dedup is silently skipped (fail-open) so ingest never breaks.
-MODAL_DEDUP_URL = os.getenv("MODAL_DEDUP_URL")
 
 # Desktop wallpaper detection: run the RotNet orientation detector; if an image
 # is a rotated landscape (90/270 with confidence >= DESKTOP_CONFIDENCE), rotate

@@ -1,56 +1,46 @@
-# Deployment
+# Pipeline deployment
 
-The services share a Git repository but keep independent runtimes. No production deployment or database migration is performed automatically by this repository's CI.
+## Modal backend
 
-## Admin / Vercel
+Install `services/image-processing/requirements-cli.txt`. The root wrapper selects `harrir-prod-2` and the correct service working directory:
 
-Use the existing Vercel project `insta-s3-client-uploader`. Connect `beingPro007/wallee-platform` and set Root Directory to `apps/admin`. Preserve its current environment variables and domains. The app has its own `package-lock.json` and `.npmrc`; run `npm ci` and `npm run build` from that directory. Changing the Git source does not copy environment variables; retain the existing project configuration.
+```sh
+python3 scripts/modal.py deploy all
+python3 scripts/modal.py run worker --url 'https://pin.it/YOUR_PIN'
+```
 
-The old project's provider association is not imported automatically. Verify a preview build and its environment before changing production routing. The UI's original branding is preserved by this source migration.
+The deployed apps retain their names:
 
-## Modal
+- `zero-shot-classifier-api` — category classification and duplicate checks (`main.py`). The unused text-search endpoint has been removed from source.
+- `wall-e-orientation` — rotation detection (`orientation.py`).
+- `wall-e-upscaler` — queue-based and desktop upscaling (`upscaler.py`).
+- `wall-e-worker` — download/ingestion coordinator (`worker_modal.py`).
 
-Install `services/image-processing/requirements-cli.txt` in a local virtual environment. The deployment wrapper defaults to profile `harrir-prod-2` and sets the working directory correctly. The four apps remain:
+`deploy all` deploys classifier, orientation, upscaler, then worker. Cleanup changes take effect remotely only after deployment. One-off `run worker` executions use the local worker source and the existing deployed classifier/orientation/upscaler.
 
-- `zero-shot-classifier-api` — `main.py`
-- `wall-e-orientation` — `orientation.py`
-- `wall-e-upscaler` — `upscaler.py`
-- `wall-e-worker` — `worker_modal.py`
+Keep the existing named secret `wallee-supabase-secrets` and Volumes `wall-e-worker-data` and `wall-e-rotnet`. The worker Volume stores Instagram cookies; RotNet weights remain on the orientation Volume. Supabase's `upscale_queue` webhook must target the intended workspace's upscaler. Live tests should verify queue completion instead of assuming this webhook is configured correctly.
 
-`python3 scripts/modal.py deploy all` deploys classifier, orientation, upscaler, then worker. The `sync` entry point is available separately for explicit maintenance. Secret and Volume names remain unchanged, including `wallee-supabase-secrets`, `wall-e-worker-data`, and `wall-e-rotnet`. Instagram sessions/cookies belong on the worker Volume.
+## Model artifacts
 
-The existing Supabase `upscale_queue` webhook must point at the upscaler in the intended workspace. A live webhook destination was not audited during the source migration. Do not use the old test endpoint in `dev-testing`.
-
-### Model artifacts
-
-Model files are excluded from Git. The migration retained local copies and records their sizes and SHA-256 hashes in `artifacts.json`.
+The four ignored local assets are the two RealESRGAN weight files and the classifier's category names/embeddings. `artifacts.json` records hashes and sizes.
 
 ```sh
 python3 scripts/assets.py restore --source-root /home/rdxtreme
 python3 scripts/assets.py check
 ```
 
-For a different machine, securely transfer the listed files from the retained source folders or an approved artifact store to the same relative paths, then run the checksum check. Category embeddings can also be regenerated with `python3 scripts/modal.py run categories`; regenerate the manifest deliberately if changing models/categories. Orientation weights remain on the existing Modal Volume.
+For a new machine, transfer these assets from the retained original project or an approved artifact store, then verify checksums. Category embeddings can be regenerated with `python3 scripts/modal.py run categories`; update their manifest hashes deliberately if the categories/model change. Old search vectors and notebook-trained pickle models are no longer required.
 
-## Cloudflare proxy
+## Pipeline UI / Vercel
 
-```sh
-cd services/supabase-proxy
-npm ci
-npm run check
-npm run deploy
-```
+The retained `apps/admin` interface starts ingestion, shows queue status, approves desktop images, and generates session JSON in S3. Its build callback is used when `VERCEL_BUILD_URL` and `BUILD_WEBHOOK_SECRET` are configured in the upscaler.
 
-Keep the existing Worker name from `wrangler.toml`. Use your Cloudflare account's authentication; provider caches are not committed.
+For the existing Vercel project `insta-s3-client-uploader`, set the Git source to the platform repository and Root Directory to `apps/admin` when publishing is resumed. Keep its existing environment variables and domains. Run `npm ci` and `npm run build` in that directory. No Vercel reconnection is performed by a local source cleanup.
 
-## Search encoder and earlier classifier
+## Database and maintenance
 
-The ONNX API can be built from `services/search-encoder` after restoring `model.onnx`: `docker build -t wallee-search services/search-encoder`. It uses port 7860. The current mobile app generates text embeddings through Rust; this separate API is retained for existing consumers.
+The retained SQL covers `home_sections` for the pipeline UI, dimensions on `upscale_queue`, and the wallpaper file-path constraint. These are historical changes for an existing database, not a complete bootstrap schema. The file-path constraint migration deletes duplicate rows; review it before executing it. No SQL is run automatically.
 
-The original Hugging Face Spaces are not deleted by the GitHub consolidation. Their deployment linkage remains separate. The Gradio classifier in `legacy/gradio-classifier` uses a different CLIP setup from the Modal classifier; do not substitute it silently.
+The processing service needs `wallpapers` (image vectors/category/file path), `upscale_queue` (job state and S3 paths), and the `match_wallpapers` RPC for deduplication. Its older desktop-queue helper also refers to `desktop_upscale_queue`; the worker's normal desktop path calls the upscaler directly.
 
-## Supabase
-
-`infra/supabase/migrations` preserves the existing mobile repository's ordered SQL history. `reference/uploader_home_sections.sql` is an overlapping setup script retained for comparison, not another migration. Do not apply it after the equivalent timestamped migration.
-
-These migrations are historical, not a newly validated clean-database bootstrap. Match the target database and its applied migration ledger before any `db push`. The mobile repository was left intact; future schema changes should be coordinated from this platform repository to avoid divergent migration histories.
+The optional `sync` utility repairs the wallpaper database against S3 metadata and remains part of image-processing maintenance. It is not a standalone search service. Prune/backfill defaults to dry run; inspect its results before `--apply`.

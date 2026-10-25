@@ -6,7 +6,7 @@ from pathlib import Path
 import shutil
 
 ROOT = Path(__file__).resolve().parents[1]
-SOURCE_MAP = {'services/image-processing/': 'walee_image_processing', 'services/search-encoder/': 'wallee-search'}
+SOURCE_MAP = {'services/image-processing/': 'walee_image_processing'}
 
 def main():
     p = argparse.ArgumentParser(description=__doc__)

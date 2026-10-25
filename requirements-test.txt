@@ -1,0 +1,4 @@
+-r services/image-processing/requirements-cli.txt
+Pillow
+supabase
+boto3

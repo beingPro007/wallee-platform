@@ -1,47 +1,61 @@
-# Wallee Platform
+# Wallee Platform — Image Ingestion Pipeline
 
-One repository for Wallee's admin uploader, image processing, search encoder, database migrations, and Supabase proxy. The Flutter mobile app remains in [beingPro007/wallee](https://github.com/beingPro007/wallee).
+This repository focuses on getting images from Instagram, Pinterest, and Wallhaven into S3: download, classify, check duplicates, detect rotation, generate thumbnails, and upscale.
 
-| Directory | Responsibility | Deployment |
-| --- | --- | --- |
-| `apps/admin` | Upload URLs, manage collections, review desktop candidates | Next.js / Vercel |
-| `services/image-processing` | Ingestion, classification, deduplication, orientation, upscaling, sync | Modal: `harrir-prod-2` |
-| `services/search-encoder` | Standalone ONNX text embedding API | Docker / Hugging Face Space |
-| `services/supabase-proxy` | Supabase reverse proxy | Cloudflare Worker |
-| `infra/supabase` | Shared database migration history | Supabase; apply deliberately |
-| `legacy/gradio-classifier` | Earlier standalone CLIP classifier | Preserved Hugging Face / Gradio code |
+| Component | Purpose |
+| --- | --- |
+| `services/image-processing` | The processing backend, deployed on Modal in `harrir-prod-2` |
+| `apps/admin` | Pipeline interface: submit URLs, review desktop candidates, monitor jobs, and publish session JSON to S3 |
+| `infra/supabase/migrations` | Existing pipeline-related queue, wallpaper, and uploader-section migrations |
+| `scripts` | Deployment, model-asset checks, and credential checks |
+| `tests` | Offline integration tests for ingestion and upscaling orchestration |
 
-## Local setup
+The standalone text encoder, Supabase proxy, earlier Gradio classifier, experimental notebooks, and mobile-only SQL were removed. The mobile app remains in its separate repository.
 
-Use Node.js 22+ and Python 3.11+ for tooling. GPU inference runs inside the Modal images defined by the processor.
+## Run the pipeline
 
 ```sh
-# On a fresh checkout only; do not overwrite existing local credentials.
+python3 -m pip install -r services/image-processing/requirements-cli.txt
+python3 scripts/assets.py check
+python3 scripts/modal.py run worker --url 'https://pin.it/YOUR_PIN'
+# Optional fixed category/collection:
+python3 scripts/modal.py run worker --url 'https://pin.it/YOUR_PIN' --session-slug my-collection
+```
+
+The deployment wrapper explicitly selects `harrir-prod-2` by default, independent of the active local Modal profile. Use `--profile` or `MODAL_PROFILE` to intentionally choose another workspace. The existing Modal secret `wallee-supabase-secrets` supplies cloud credentials.
+
+## Pipeline behavior
+
+```text
+URL → download → duplicate check → orientation/desktop routing
+                                      ├─ regular image → category → raw S3 + thumbnail
+                                      │                  → upscale_queue → upscaler → final S3
+                                      └─ desktop image → review or direct upscaling → final S3
+```
+
+Duplicate images are skipped. A session slug bypasses category prediction. Desktop candidates are staged for review by default. CLIP image encoding and category text embeddings remain necessary for classification and deduplication; removing the separate search service does not remove these model components.
+
+## Test locally
+
+```sh
+python3 -m venv .venv
+.venv/bin/python -m pip install -r requirements-test.txt
+make test PYTHON=.venv/bin/python
+make check
+make check-assets
+```
+
+The offline tests use actual image serialization, thumbnail generation, queue orchestration, and output handling with in-memory S3/database clients and simulated model predictions. They do not establish GPU model accuracy or remote availability. See [validation](docs/validation.md) for live-test results and limits.
+
+## Uploader interface
+
+```sh
+# Fresh checkout only; preserve existing local credentials.
 cp -n apps/admin/.env.example apps/admin/.env.local
 make admin-install
 make admin-dev
 ```
 
-Fill in the admin environment file using your existing credentials. The admin-auth Supabase project and wallpaper Supabase project can be different: retain the corresponding values. Local environment files are ignored at every depth; only placeholder examples belong in Git.
+The uploader remains because it operates the pipeline and writes session JSON to S3. The backend can also be invoked directly without the UI.
 
-```sh
-make check                    # offline source/credential checks
-make admin-check              # TypeScript
-make admin-build              # production build
-make check-assets             # ignored model asset checksums
-```
-
-## Processing and deployment
-
-```sh
-python3 -m pip install -r services/image-processing/requirements-cli.txt
-python3 scripts/assets.py restore --source-root /home/rdxtreme
-python3 scripts/modal.py run worker --url 'https://wallhaven.cc/...'
-python3 scripts/modal.py deploy all
-```
-
-The wrapper explicitly defaults to `harrir-prod-2`, independent of the machine's active Modal profile. It keeps the existing deployed app names. Use `--profile` or `MODAL_PROFILE` to intentionally select a different workspace.
-
-Uploads flow through ingestion, duplicate checks, desktop routing, category classification when applicable, S3 storage, and upscaling. Phone images enter `upscale_queue`; desktop images use review or direct upscaling. See [deployment](docs/deployment.md), [environment handling](docs/environment.md), and the [before/after migration table](docs/migration.md).
-
-A source-code migration does not redeploy services, apply SQL, or move production data. The old local folders are retained as recovery sources. Model binaries are stored locally and listed in `artifacts.json`, rather than committed to Git.
+See [deployment](docs/deployment.md), [environment handling](docs/environment.md), and the [keep/remove comparison](docs/migration.md). Real `.env` files and model binaries remain local and ignored. No live services or databases are removed by this source cleanup.

@@ -21,7 +21,7 @@ def main():
     count = 0
     # Also catch exact server-side values from local .env files without logging them.
     known_secrets = set()
-    for folder in ['apps/admin', 'services/image-processing', 'services/search-encoder']:
+    for folder in ['apps/admin', 'services/image-processing']:
         for env in (ROOT / folder).glob('.env*'):
             if env.name.endswith('.example'):
                 continue
