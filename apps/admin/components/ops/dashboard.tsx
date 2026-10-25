@@ -42,6 +42,7 @@ import {
   X,
   Zap,
 } from "lucide-react";
+import { HomePublishing } from "./home-publishing";
 import type { LucideIcon } from "lucide-react";
 import { getSupabaseClient } from "@/lib/supabase/client";
 import type {
@@ -58,6 +59,7 @@ import type {
 import { ago, bytes, date, money, number, title } from "@/lib/ops/format";
 
 type View =
+  | "home"
   | "overview"
   | "pipeline"
   | "library"
@@ -72,6 +74,7 @@ const NAV: { id: View; label: string; icon: LucideIcon; group: string }[] = [
     icon: LayoutDashboard,
     group: "WORKSPACE",
   },
+  { id: "home", label: "Home & Publishing", icon: Layers3, group: "WORKSPACE" },
   {
     id: "pipeline",
     label: "Pipeline & activity",
@@ -533,8 +536,14 @@ function Flow({ data }: { data: Pipeline | null }) {
     </div>
   );
 }
-export function OperationsDashboard({ email }: { email: string }) {
-  const [view, setView] = useState<View>("overview");
+export function OperationsDashboard({
+  email,
+  initialView = "overview",
+}: {
+  email: string;
+  initialView?: "overview" | "home";
+}) {
+  const [view, setView] = useState<View>(initialView);
   const [mobileNav, setMobileNav] = useState(false);
   const [selectedRun, setSelectedRun] = useState<Run | null>(null);
   const pipeline = useSource<Pipeline>("pipeline", 30000);
@@ -556,6 +565,7 @@ export function OperationsDashboard({ email }: { email: string }) {
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
   const heading = {
+    home: "Home & Publishing",
     overview: "Operations overview",
     pipeline: "Pipeline & activity",
     library: "Image library",
@@ -564,6 +574,7 @@ export function OperationsDashboard({ email }: { email: string }) {
     system: "System health",
   }[view];
   const description = {
+    home: "Curate the mobile home screen, preview collections, and publish with confidence.",
     overview: "A clear view of your pipeline, storage, and infrastructure.",
     pipeline: "Follow every recorded run, from source media to publication.",
     library:
@@ -614,7 +625,8 @@ export function OperationsDashboard({ email }: { email: string }) {
           <div className="readonly-note">
             <ShieldCheck size={18} />
             <div>
-              Observe with confidence<small>This dashboard is read-only.</small>
+              Curate with confidence
+              <small>Home publishing · read-only monitoring</small>
             </div>
           </div>
           <div className="user-box">
@@ -686,22 +698,24 @@ export function OperationsDashboard({ email }: { email: string }) {
               <h1>{heading}</h1>
               <p>{description}</p>
             </div>
-            <div className="page-actions">
-              <span className="live-label">
-                <Radio size={13} /> Activity refreshes every 30s
-              </span>
-              <button
-                className="ops-button"
-                onClick={() => {
-                  pipeline.refresh();
-                  health.refresh();
-                }}
-                disabled={refreshing}
-              >
-                <RefreshCw size={15} className={refreshing ? "spin" : ""} />
-                Refresh
-              </button>
-            </div>
+            {view !== "home" && (
+              <div className="page-actions">
+                <span className="live-label">
+                  <Radio size={13} /> Activity refreshes every 30s
+                </span>
+                <button
+                  className="ops-button"
+                  onClick={() => {
+                    pipeline.refresh();
+                    health.refresh();
+                  }}
+                  disabled={refreshing}
+                >
+                  <RefreshCw size={15} className={refreshing ? "spin" : ""} />
+                  Refresh
+                </button>
+              </div>
+            )}
           </div>
           {view === "overview" && (
             <>
@@ -942,6 +956,7 @@ export function OperationsDashboard({ email }: { email: string }) {
             />
           )}
           {view === "library" && <LibraryPage />}
+          {view === "home" && <HomePublishing />}
           {view === "system" && (
             <SystemPage
               pipeline={pipeline.data}
@@ -961,8 +976,8 @@ export function OperationsDashboard({ email }: { email: string }) {
               <Mark small /> Wallee Operations
             </span>
             <span>
-              Read-only workspace <span>·</span> Source timestamps shown per
-              panel
+              Home curation & operations <span>·</span> Source timestamps shown
+              per panel
             </span>
           </footer>
         </main>

@@ -2,7 +2,11 @@ import { redirect } from "next/navigation";
 import { requireOpsUser, AccessError } from "@/lib/ops/auth";
 import { OperationsDashboard } from "@/components/ops/dashboard";
 import { SignOutButton } from "@/components/ops/sign-out";
-export default async function Protected() {
+export default async function Protected({
+  searchParams,
+}: {
+  searchParams: Promise<{ view?: string }>;
+}) {
   let email: string;
   try {
     email = (await requireOpsUser()).email!;
@@ -22,5 +26,10 @@ export default async function Protected() {
       </main>
     );
   }
-  return <OperationsDashboard email={email} />;
+  return (
+    <OperationsDashboard
+      email={email}
+      initialView={(await searchParams).view === "home" ? "home" : "overview"}
+    />
+  );
 }

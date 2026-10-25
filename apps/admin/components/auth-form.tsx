@@ -79,7 +79,7 @@ export function AuthForm() {
       </form>
       <div className="signin-private">
         <ShieldCheck size={13} />
-        Private access · read-only operations
+        Private access · home curation & operations
       </div>
     </section>
   );

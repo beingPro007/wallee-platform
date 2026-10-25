@@ -1,6 +1,6 @@
 # Operations dashboard
 
-Read-only admin dashboard in `apps/admin`, deployed to production on the existing Vercel project. Production URL: https://insta-s3-client-uploader-one.vercel.app. Existing processing callbacks remain for compatibility; the new dashboard exposes no processing controls.
+Admin dashboard with Home & Publishing curation and read-only operations monitoring in `apps/admin`, deployed to production on the existing Vercel project. Production URL: https://insta-s3-client-uploader-one.vercel.app. Existing processing callbacks remain for compatibility; the operations views expose no processing controls. Home curation is documented in `docs/home-publishing.md`.
 
 ## Data and access
 

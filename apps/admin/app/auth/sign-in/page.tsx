@@ -31,7 +31,7 @@ export default function SignIn() {
           </div>
         </div>
         <div className="auth-brand-footer">
-          Wallee workspace · Private operations console
+          Wallee workspace · Home curation & operations
         </div>
       </section>
       <section className="auth-form-side">
