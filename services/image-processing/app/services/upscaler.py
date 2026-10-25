@@ -177,7 +177,7 @@ class UpscalerService:
         if stripped is None:
             stripped = os.path.basename(raw_key)
         base = stripped.rsplit(".", 1)[0]
-        return f"{prefix}/{base}{ext}"
+        return f"{prefix}/{base}{ext}" if prefix else f"{base}{ext}"
 
     @staticmethod
     def _fit_to_target(image: Image.Image, target: Tuple[int, int]) -> Image.Image:
@@ -194,31 +194,45 @@ class UpscalerService:
         new_size = (int(w * ratio), int(h * ratio))
         return image.resize(new_size, Image.LANCZOS)
 
-    async def update_manifest(self, new_keys: List[str]) -> None:
+    def _merge_manifest(self, key: str, entries: list, *, version: int) -> None:
+        """Merge with conditional writes so simultaneous publishers cannot lose entries."""
+        for attempt in range(5):
+            try:
+                obj = self.s3.get_object(Bucket=self.bucket_name, Key=key)
+                data = json.loads(obj["Body"].read())
+                condition = {"IfMatch": obj["ETag"]}
+            except ClientError as exc:
+                if exc.response["Error"]["Code"] not in ("NoSuchKey", "404"):
+                    raise
+                data = {"wallpapers": []}
+                condition = {"IfNoneMatch": "*"}
+            if version == 1:
+                data["wallpapers"] = sorted(set(data.get("wallpapers", [])) | set(entries))
+            else:
+                current = {e["p"]: e for e in data.get("wallpapers", [])}
+                for entry in entries:
+                    current[entry["p"]] = {**current.get(entry["p"], {}), **entry}
+                data.update(version=2, wallpapers=list(current.values()))
+            try:
+                self.s3.put_object(
+                    Bucket=self.bucket_name, Key=key,
+                    Body=json.dumps(data), ContentType="application/json",
+                    CacheControl="max-age=0, no-cache, no-store", **condition,
+                )
+                return
+            except ClientError as exc:
+                if exc.response["Error"]["Code"] not in (
+                    "PreconditionFailed", "ConditionalRequestConflict", "412", "409"
+                ) or attempt == 4:
+                    raise
+
+    async def update_manifest(self, new_keys: List[str], entries: Optional[list] = None) -> None:
         if not new_keys:
             return
-        try:
-            try:
-                obj  = await asyncio.to_thread(self.s3.get_object, Bucket=self.bucket_name, Key="wallpapers.json")
-                data = json.loads(obj["Body"].read().decode("utf-8"))
-            except Exception:
-                data = {"wallpapers": []}
-
-            current = set(data.get("wallpapers", []))
-            current.update(new_keys)
-            data["wallpapers"] = sorted(current)
-
-            await asyncio.to_thread(
-                self.s3.put_object,
-                Bucket=self.bucket_name,
-                Key="wallpapers.json",
-                Body=json.dumps(data, indent=2),
-                ContentType="application/json",
-                CacheControl="max-age=0, no-cache, no-store",
-            )
-            self.logger.info(f"📄 Manifest updated: +{len(new_keys)} keys")
-        except Exception as e:
-            self.logger.error(f"❌ Manifest update error: {e}")
+        await asyncio.to_thread(self._merge_manifest, "wallpapers.json", new_keys, version=1)
+        if entries:
+            await asyncio.to_thread(self._merge_manifest, "wallpapers_v2.json", entries, version=2)
+        self.logger.info(f"📄 Manifests updated: +{len(new_keys)} keys")
 
     # ─────────────────────────────────────────────────────────────────────
     # Embedding writer — keeps wallpapers.embedding in sync with new uploads
@@ -315,7 +329,7 @@ class UpscalerService:
             sr_image = await asyncio.to_thread(self.model.predict, image, UPSCALER_PATCH_BATCH)
 
             # 5. Upload
-            out_key = self._build_output_key(raw_key, prefix="wallpapers", ext=".jpg")
+            out_key = self._build_output_key(raw_key, prefix="", ext=".jpg")
             size_mb = (await self._upload_image(sr_image, out_key, fmt="JPEG")) / 1024 / 1024
             self.logger.info(f"⬆️  {uuid}: {out_key}  ({size_mb:.2f} MB)")
 
@@ -421,7 +435,18 @@ class UpscalerService:
             )
             successful = [r for r in results if isinstance(r, str)]
             if successful:
-                await self.update_manifest(successful)
+                rows = await self._db_execute(
+                    self.supabase.table("upscale_queue")
+                    .select("upscaled_s3_key,width,height")
+                    .in_("id", chunk).eq("status", "completed")
+                )
+                entries = [
+                    {"p": row["upscaled_s3_key"],
+                     "t": "thumbs/" + row["upscaled_s3_key"].rsplit(".", 1)[0] + ".webp",
+                     "w": row.get("width", 0), "h": row.get("height", 0)}
+                    for row in rows.data if row.get("upscaled_s3_key") in successful
+                ]
+                await self.update_manifest(successful, entries)
 
         # Auto-trigger JSON build for any completed session categories
         unique_categories = set(category_map.values())

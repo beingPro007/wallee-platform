@@ -1,5 +1,7 @@
 # Pipeline validation — 2026-10-25
 
+Latest production deployment and migration results are in [category-path-migration.md](category-path-migration.md). The earlier test and cleanup sections below describe the state before that deployment.
+
 ## Offline integration tests
 
 Run with an isolated Python environment:

@@ -193,35 +193,45 @@ const WALLPAPERS_V2_KEY = process.env.WALLPAPERS_V2_KEY ?? "wallpapers_v2.json"
 async function mergeIntoMasterJson(
   entries: Array<{ p: string; t: string; w: number; h: number }>
 ): Promise<void> {
-  let existing: Array<{ p: string; w: number; h: number; s?: number; t?: string }> = []
+  for (let attempt = 0; attempt < 5; attempt++) {
+    let existing: Array<{ p: string; w: number; h: number; s?: number; t?: string }> = []
+    let etag: string | undefined
+    try {
+      const obj = await s3Client.send(
+        new GetObjectCommand({ Bucket: BUCKET, Key: WALLPAPERS_V2_KEY })
+      )
+      etag = obj.ETag
+      const body = await obj.Body?.transformToString()
+      if (body) existing = JSON.parse(body).wallpapers ?? []
+    } catch (error) {
+      if ((error as { name?: string }).name !== "NoSuchKey") throw error
+    }
 
-  try {
-    const obj = await s3Client.send(
-      new GetObjectCommand({ Bucket: BUCKET, Key: WALLPAPERS_V2_KEY })
-    )
-    const body = await (obj.Body as any)?.transformToString()
-    if (body) existing = JSON.parse(body).wallpapers ?? []
-  } catch {
-    // file doesn't exist yet — start fresh
-  }
+    const merged = new Map(existing.map((e) => [e.p, e]))
+    for (const e of entries) {
+      // The upscaler may already have published the path; still mark the session.
+      merged.set(e.p, { ...merged.get(e.p), ...e, s: 1 })
+    }
 
-  const seen = new Set(existing.map((e) => e.p))
-  for (const e of entries) {
-    if (!seen.has(e.p)) {
-      existing.push({ p: e.p, t: e.t, w: e.w, h: e.h, s: 1 })
-      seen.add(e.p)
+    try {
+      await s3Client.send(
+        new PutObjectCommand({
+          Bucket: BUCKET,
+          Key: WALLPAPERS_V2_KEY,
+          Body: JSON.stringify({ version: 2, wallpapers: [...merged.values()] }),
+          ContentType: "application/json",
+          CacheControl: "public, max-age=300",
+          ...(etag ? { IfMatch: etag } : { IfNoneMatch: "*" }),
+        })
+      )
+      return
+    } catch (error) {
+      const name = (error as { name?: string }).name
+      if (attempt === 4 || !["PreconditionFailed", "ConditionalRequestConflict"].includes(name ?? "")) {
+        throw error
+      }
     }
   }
-
-  await s3Client.send(
-    new PutObjectCommand({
-      Bucket: BUCKET,
-      Key: WALLPAPERS_V2_KEY,
-      Body: JSON.stringify({ version: 2, wallpapers: existing }),
-      ContentType: "application/json",
-      CacheControl: "public, max-age=300",
-    })
-  )
 }
 
 // ── Build JSON ───────────────────────────────────────────────────────────────
@@ -252,7 +262,7 @@ export async function buildSectionJson(
 
   if (qErr) throw new Error(`upscale_queue query failed: ${qErr.message}`)
 
-  // p = wallpapers/{slug}/{file}.jpg  (upscaled full-res)
+  // p = {slug}/{file}.jpg  (upscaled full-res)
   // t = thumbs/{slug}/{file}.webp     (derived from raw_s3_key stem)
   const wallpapers = (rows ?? []).map((row) => {
     const p = row.upscaled_s3_key as string

@@ -6,6 +6,8 @@ checks do not measure model accuracy or exercise the deployed Modal services.
 import asyncio
 import importlib
 import io
+import json
+import hashlib
 import logging
 import os
 from pathlib import Path
@@ -36,13 +38,19 @@ class MemoryS3:
         self.fail_upload = False
 
     def put_object(self, *, Bucket, Key, Body, **kwargs):
+        current = self.objects.get(Key)
+        etag = '"' + hashlib.md5(current).hexdigest() + '"' if current is not None else None
+        if (kwargs.get('IfNoneMatch') == '*' and current is not None) or (
+            'IfMatch' in kwargs and kwargs['IfMatch'] != etag
+        ):
+            raise ClientError({'Error': {'Code': 'PreconditionFailed'}}, 'PutObject')
         self.objects[Key] = Body.encode() if isinstance(Body, str) else bytes(Body)
         self.metadata[Key] = kwargs
 
     def get_object(self, *, Bucket, Key):
         if Key not in self.objects:
             raise ClientError({'Error': {'Code': 'NoSuchKey'}}, 'GetObject')
-        return {'Body': io.BytesIO(self.objects[Key])}
+        return {'Body': io.BytesIO(self.objects[Key]), 'ETag': '"' + hashlib.md5(self.objects[Key]).hexdigest() + '"'}
 
     def download_fileobj(self, bucket, key, fileobj):
         fileobj.write(self.get_object(Bucket=bucket, Key=key)['Body'].read())
@@ -194,7 +202,7 @@ class PipelineTests(unittest.TestCase):
         asyncio.run(worker.run_batch(['job-1']))
         row = self.db.rows['upscale_queue'][0]
         self.assertEqual(row['status'], 'completed')
-        key = 'wallpapers/nature/sample.jpg'
+        key = 'nature/sample.jpg'
         self.assertEqual(row['upscaled_s3_key'], key)
         self.assertEqual((row['width'], row['height']), (1200, 1800))
         image = Image.open(io.BytesIO(self.s3.objects[key]))
@@ -202,7 +210,29 @@ class PipelineTests(unittest.TestCase):
         self.assertNotIn('raw_images/nature/sample.jpg', self.s3.objects)
         self.assertIn('thumbs/nature/sample.webp', self.s3.objects)
         self.assertIn(key.encode(), self.s3.objects['wallpapers.json'])
-        worker._embed_and_register_wallpaper.assert_awaited_once()
+        worker._embed_and_register_wallpaper.assert_awaited_once_with(key, 'nature', unittest.mock.ANY)
+        v2 = json.loads(self.s3.objects['wallpapers_v2.json'])
+        self.assertEqual(v2['wallpapers'], [{'p': key, 't': 'thumbs/nature/sample.webp', 'w': 1200, 'h': 1800}])
+        self.assertFalse(any(k.startswith('wallpapers/') for k in self.s3.objects))
+
+    def test_manifest_merge_retries_concurrent_writer_and_preserves_session_flag(self):
+        worker = self.upscaler()
+        self.s3.put_object(Bucket='test-bucket', Key='wallpapers_v2.json', Body=json.dumps(
+            {'version': 2, 'wallpapers': [{'p': 'nature/sample.jpg', 's': 1, 'w': 1}]}
+        ))
+        original = self.s3.put_object
+        conflict = [True]
+        def concurrent_write(**kwargs):
+            if conflict[0]:
+                conflict[0] = False
+                original(Bucket='test-bucket', Key='wallpapers_v2.json', Body=json.dumps(
+                    {'version': 2, 'wallpapers': [{'p': 'nature/sample.jpg', 's': 1}, {'p': 'anime/other.jpg'}]}
+                ))
+            return original(**kwargs)
+        with patch.object(self.s3, 'put_object', side_effect=concurrent_write):
+            worker._merge_manifest('wallpapers_v2.json', [{'p': 'nature/sample.jpg', 'w': 1200}], version=2)
+        data = json.loads(self.s3.objects['wallpapers_v2.json'])['wallpapers']
+        self.assertEqual(data, [{'p': 'nature/sample.jpg', 's': 1, 'w': 1200}, {'p': 'anime/other.jpg'}])
 
     def test_failed_final_upload_preserves_original(self):
         self.ingest()

@@ -18,7 +18,7 @@ The deployed apps retain their names:
 
 `deploy all` deploys classifier, orientation, upscaler, then worker. Cleanup changes take effect remotely only after deployment. One-off `run worker` executions use the local worker source and the existing deployed classifier/orientation/upscaler.
 
-Keep the existing named secret `wallee-supabase-secrets` and Volumes `wall-e-worker-data` and `wall-e-rotnet`. The worker Volume stores Instagram cookies; RotNet weights remain on the orientation Volume. Supabase's `upscale_queue` webhook must target the intended workspace's upscaler. Live tests should verify queue completion instead of assuming this webhook is configured correctly.
+Keep the existing named secret `wallee-supabase-secrets` and Volumes `wall-e-worker-data` and `wall-e-rotnet`. The worker Volume stores Instagram cookies; RotNet weights remain on the orientation Volume. Supabase queue dispatch must target the intended workspace's upscaler. The inspected Wallee database uses scheduled functions and has no row trigger on `upscale_queue`; verify scheduled dispatch separately from direct webhook/Modal calls.
 
 ## Model artifacts
 
@@ -44,3 +44,26 @@ The retained SQL covers `home_sections` for the pipeline UI, dimensions on `upsc
 The processing service needs `wallpapers` (image vectors/category/file path), `upscale_queue` (job state and S3 paths), and the `match_wallpapers` RPC for deduplication. Desktop jobs call the upscaler directly and do not need a separate desktop queue table.
 
 The optional `sync` utility repairs the wallpaper database against S3 metadata and remains part of image-processing maintenance. It is not a standalone search service. Prune/backfill defaults to dry run; inspect its results before `--apply`.
+
+## Category paths (deployed 2026-10-25)
+
+Standard output is now `{category}/{filename}.jpg`, with thumbnails under
+`thumbs/{category}/{filename}.webp`. The classifier, final wallpaper record,
+`upscale_queue.upscaled_s3_key`, and both root manifests use the same final path.
+Desktop output remains `desktop_wallpapers/{category}/{filename}.png`.
+The upscaler updates `wallpapers.json` and `wallpapers_v2.json`; v2 includes
+thumbnail paths and final dimensions. Both the upscaler and admin v2 publisher
+use conditional S3 writes and retries to avoid overwriting concurrent changes.
+The admin collection builder marks existing master entries with `s: 1`.
+
+The updated upscaler is deployed in `harrir-prod-2`. The updated admin is deployed
+to the existing Vercel project from `apps/admin`, without uploading local `.env`
+files. GitHub publishing remains separate.
+
+`infra/cloudfront/category-path-compat.js` is deployed as CloudFront Function
+`wallee-category-paths-20261025`, attached to the default viewer-request behavior
+of distribution `E2VYY9XQB5FRGW`. It maps legacy image URLs under `/wallpapers/`
+to category paths, preserving mobile caches and old shared links. It does not
+rewrite the root manifests, thumbnails, desktop images, or `/wallpapers-secure`.
+The original distribution configuration is retained in the private migration
+backup. See `docs/category-path-migration.md` for migration and validation details.

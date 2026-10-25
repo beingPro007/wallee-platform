@@ -1,4 +1,5 @@
 PYTHON ?= python3
+NODE ?= node
 
 .PHONY: help admin-install admin-dev admin-build admin-check check check-assets test deploy
 help:
@@ -20,3 +21,4 @@ deploy:
 
 test:
 	$(PYTHON) -m unittest discover -s tests -v
+	$(NODE) tests/category-path-compat.test.cjs
