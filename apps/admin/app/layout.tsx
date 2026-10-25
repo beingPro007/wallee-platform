@@ -4,8 +4,8 @@ import { Analytics } from "@vercel/analytics/next"
 import "./globals.css"
 
 export const metadata: Metadata = {
-  title: "InstaS3 - Instagram to S3 Uploader",
-  description: "Upload Instagram content directly to S3 with Supabase authentication",
+  title: "Wallee Operations",
+  description: "Private operations dashboard for Wallee processing, storage, and AWS costs",
 }
 
 export default function RootLayout({

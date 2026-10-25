@@ -1,3 +1,4 @@
+from ..utils.observability import OperationTrace
 import io
 import os
 import json
@@ -229,9 +230,16 @@ class UpscalerService:
     async def update_manifest(self, new_keys: List[str], entries: Optional[list] = None) -> None:
         if not new_keys:
             return
-        await asyncio.to_thread(self._merge_manifest, "wallpapers.json", new_keys, version=1)
-        if entries:
-            await asyncio.to_thread(self._merge_manifest, "wallpapers_v2.json", entries, version=2)
+        trace = await asyncio.to_thread(OperationTrace, "publish", new_keys[0])
+        try:
+            await asyncio.to_thread(trace.stage, "publishing", "Updating image manifests", {"images": len(new_keys), "v2": bool(entries)})
+            await asyncio.to_thread(self._merge_manifest, "wallpapers.json", new_keys, version=1)
+            if entries:
+                await asyncio.to_thread(self._merge_manifest, "wallpapers_v2.json", entries, version=2)
+            await asyncio.to_thread(trace.finish, "succeeded", "Manifest publication completed", {"images": len(new_keys), "v2": bool(entries)})
+        except Exception as error:
+            await asyncio.to_thread(trace.finish, "failed", "Manifest publication failed", {"error_type": type(error).__name__})
+            raise
         self.logger.info(f"📄 Manifests updated: +{len(new_keys)} keys")
 
     # ─────────────────────────────────────────────────────────────────────
@@ -290,6 +298,7 @@ class UpscalerService:
     async def _process_uuid(self, uuid: str) -> Optional[str]:
         if not uuid:
             return None
+        trace = await asyncio.to_thread(OperationTrace, "upscale", uuid)
         try:
             # 1. Fetch metadata
             resp = await self._db_execute(
@@ -299,11 +308,13 @@ class UpscalerService:
             )
             if not resp.data:
                 self.logger.warning(f"⚠️  ID {uuid} not found in queue")
+                await asyncio.to_thread(trace.finish, "failed", "Queue record not found")
                 return None
 
             raw_key = resp.data[0].get("raw_s3_key")
             category = resp.data[0].get("category")
             if not raw_key:
+                await asyncio.to_thread(trace.finish, "failed", "Queue record has no input image")
                 return None
 
             # 2. Mark processing
@@ -313,6 +324,7 @@ class UpscalerService:
             )
 
             # 3. Download
+            await asyncio.to_thread(trace.stage, "downloading", "Reading original image", {"key": raw_key, "category": category})
             self.logger.info(f"⬇️  {uuid}: {raw_key}")
             try:
                 image = await self._download_image(raw_key)
@@ -322,13 +334,16 @@ class UpscalerService:
                     self.supabase.table("upscale_queue").update({"status": "failed_missing_file"}).eq("id", uuid),
                     "Mark Missing",
                 )
+                await asyncio.to_thread(trace.finish, "failed", "Original image is missing", {"key": raw_key})
                 return None
 
             # 4. Upscale (x2) — big patch batch to keep the GPU busy
+            await asyncio.to_thread(trace.stage, "upscaling", "Upscaling on GPU", {"scale": UPSCALER_SCALE})
             self.logger.info(f"🎨 {uuid}: Upscaling x{UPSCALER_SCALE}...")
             sr_image = await asyncio.to_thread(self.model.predict, image, UPSCALER_PATCH_BATCH)
 
             # 5. Upload
+            await asyncio.to_thread(trace.stage, "uploading", "Saving processed image")
             out_key = self._build_output_key(raw_key, prefix="", ext=".jpg")
             size_mb = (await self._upload_image(sr_image, out_key, fmt="JPEG")) / 1024 / 1024
             self.logger.info(f"⬆️  {uuid}: {out_key}  ({size_mb:.2f} MB)")
@@ -352,9 +367,11 @@ class UpscalerService:
 
             # 8. Delete raw
             await asyncio.to_thread(self.s3.delete_object, Bucket=self.bucket_name, Key=raw_key)
+            await asyncio.to_thread(trace.finish, "succeeded", "Image processed; publication follows", {"key": out_key, "width": sr_w, "height": sr_h})
             return out_key
 
         except Exception as e:
+            await asyncio.to_thread(trace.finish, "failed", "Upscaling failed; inspect service logs", {"error_type": type(e).__name__})
             self.logger.error(f"❌ Error processing {uuid}: {e}", exc_info=True)
             try:
                 await self.execute_with_retry(
@@ -530,6 +547,8 @@ class UpscalerService:
         Downloads run ahead into a queue; each GPU worker upscales with its own
         model copy (so several run concurrently — one image's CPU patch-stitch
         overlaps another's GPU forward); post workers encode/upload/embed."""
+        trace = await asyncio.to_thread(OperationTrace, "desktop", items[0].get("raw_s3_key") if items else None)
+        await asyncio.to_thread(trace.stage, "upscaling", "Desktop processing started", {"images": len(items), "quality": quality})
         target = DESKTOP_TARGET_8K if quality == "8k" else DESKTOP_TARGET_4K
         total = len(items)
         n_gpu = min(DESKTOP_GPU_WORKERS, len(self.desktop_pool))
@@ -573,6 +592,7 @@ class UpscalerService:
                 key = await self._finalize_desktop(final, raw_key, cat)
                 if key:
                     out_keys.append(key)
+                    await asyncio.to_thread(trace.stage, "uploading", "Desktop image saved", {"key": key, "width": final.width, "height": final.height})
 
         gpu_tasks = [asyncio.create_task(gpu_worker(self.desktop_pool[i])) for i in range(n_gpu)]
 
@@ -586,7 +606,12 @@ class UpscalerService:
             gpu_coordinator(),
             *[post_worker() for _ in range(DESKTOP_POST_WORKERS)],
         )
-        if out_keys:
-            await self.update_manifest(out_keys)
+        try:
+            if out_keys:
+                await self.update_manifest(out_keys)
+            await asyncio.to_thread(trace.finish, "succeeded" if len(out_keys) == total else "partial" if out_keys else "failed", "Desktop batch finished", {"completed": len(out_keys), "total": total, "failed": total - len(out_keys)})
+        except Exception as error:
+            await asyncio.to_thread(trace.finish, "failed", "Desktop publication failed", {"error_type": type(error).__name__, "completed": len(out_keys), "total": total})
+            raise
         self.logger.info(f"🏁 Desktop pipeline finished: {len(out_keys)}/{total} succeeded.")
         return out_keys

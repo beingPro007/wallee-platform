@@ -1,3 +1,4 @@
+from ..utils.observability import OperationTrace
 import os
 import re
 import time
@@ -197,6 +198,8 @@ class ETLService:
                 file_bytes, filename, self.dedup_threshold
             ) or {"duplicate": False}
         except Exception as e:
+            if getattr(self, "trace", None):
+                self.trace.stage("deduplicating", "Duplicate check unavailable; continuing ingestion", {"error_type": type(e).__name__}, "error")
             print(f"⚠️ Dedup check failed ({e}) — treating as unique")
             return {"duplicate": False}
 
@@ -206,6 +209,8 @@ class ETLService:
             data = self._classifier().classify_rpc.remote(file_bytes, filename)
             return (data or {}).get("label") or "misc"
         except Exception as e:
+            if getattr(self, "trace", None):
+                self.trace.stage("classifying", "Classifier failed; used misc fallback", {"error_type": type(e).__name__}, "error")
             print(f"⚠️ Classify failed ({e}) — defaulting category to 'misc'")
             return "misc"
 
@@ -223,6 +228,8 @@ class ETLService:
                 "height": height,
             }).execute()
         except Exception as err:
+            if getattr(self, "trace", None):
+                self.trace.stage("queueing", "Image uploaded but queue insertion failed", {"key": raw_s3_key, "error_type": type(err).__name__}, "error")
             print(f"DB error: {err}")
 
     @staticmethod
@@ -331,6 +338,8 @@ class ETLService:
             category = session_slug
             s3_key = f"raw_images/{session_slug}/{filename}"
         else:
+            if getattr(self, "trace", None):
+                self.trace.stage("classifying", "Classifying image", {"file": filename})
             category = self._classify_image(resized_bytes, filename)
             s3_key = f"raw_images/{category}/{filename}"
 
@@ -358,6 +367,8 @@ class ETLService:
                 try:
                     result = future.result()
                     status = result.get("status")
+                    if getattr(self, "trace", None):
+                        self.trace.stage("processing", "Image " + str(status), {"file": os.path.basename(f), "outcome": status, "key": result.get("key") or result.get("review_key") or result.get("raw_s3_key")})
                     if status == "uploaded":
                         uploads.append(result["key"])
                     elif status == "skipped":
@@ -368,6 +379,8 @@ class ETLService:
                     elif status == "desktop_review":
                         review.append(result["review_key"])
                 except Exception as e:
+                    if getattr(self, "trace", None):
+                        self.trace.stage("processing", "Image processing failed", {"file": os.path.basename(f), "error_type": type(e).__name__}, "error")
                     print(f"⚠️ File error processing {f}: {e}")
         return {"uploads": uploads, "skipped": skipped, "desktop": desktop, "review": review}
 
@@ -382,6 +395,8 @@ class ETLService:
             up.run_desktop_direct.spawn(desktop_items)
             print(f"🖥️  Spawned 8K desktop upscale for {len(desktop_items)} image(s)")
         except Exception as e:
+            if getattr(self, "trace", None):
+                self.trace.stage("dispatch", "Desktop dispatch failed", {"error_type": type(e).__name__}, "error")
             print(f"⚠️ Failed to spawn desktop upscale: {e}")
 
     # ─────────────────────────────────────────────────────────────────────
@@ -537,6 +552,8 @@ class ETLService:
         self._safe_cleanup(str(temp_dir))
         os.makedirs(str(temp_dir), exist_ok=True)
         start_time = time.time()
+        self.trace = OperationTrace("ingestion", url)
+        self.trace.stage("downloading", "Downloading source media")
 
         try:
             if "instagram.com" in url:
@@ -554,6 +571,7 @@ class ETLService:
             else:
                 raise Exception("⚠️ URL not recognized as Instagram, Pinterest, or Wallhaven.")
 
+            self.trace.stage("processing", "Download finished; checking duplicates, categories and orientation", {"source": source, "images": len(self._valid_images(str(download_path)))})
             result = self._process_directory(str(download_path), session_slug, source)
             uploads = result["uploads"]
             skipped = result["skipped"]
@@ -570,6 +588,7 @@ class ETLService:
                 f"{len(desktop)} desktop, {len(review)} staged for review, "
                 f"{len(skipped)} skipped as duplicates"
             )
+            self.trace.finish(message="Ingestion finished; downstream processing tracked separately", details={"uploaded": len(uploads), "desktop": len(desktop), "review": len(review), "duplicates": len(skipped), "duration_seconds": round(duration, 2)})
             return {
                 "uploads": uploads,
                 "count": len(uploads),
@@ -581,5 +600,8 @@ class ETLService:
                 "duration_seconds": round(duration, 2),
                 "session_slug": session_slug or None,
             }
+        except Exception as error:
+            self.trace.finish("failed", "Ingestion failed; inspect service logs for details", {"error_type": type(error).__name__})
+            raise
         finally:
             self._safe_cleanup(str(temp_dir))
