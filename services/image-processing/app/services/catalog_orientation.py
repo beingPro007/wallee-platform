@@ -9,12 +9,12 @@ def classify_rotation(prediction, confidence, threshold=0.95):
         raise ValueError("Invalid confidence")
     if not 0.85 <= threshold <= 1:
         raise ValueError("Threshold must be between 0.85 and 1")
-    confident = confidence >= threshold
+    confident = confidence > threshold
     candidate = confident and prediction != 0
     return {
         "pred_rotation": prediction,
         "confidence": confidence,
-        "status": "rotation_candidate" if candidate else "upright" if confident else "uncertain",
+        "status": "rotation_candidate" if candidate else "upright" if confident else "skipped",
         "rotation_candidate": candidate,
         "suggested_fix_rotation": -prediction if candidate else 0,
     }

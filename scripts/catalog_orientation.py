@@ -6,6 +6,7 @@ machine's default AWS credential chain. Reports stay outside the Git checkout.
 """
 import argparse
 import csv
+from collections import Counter
 from datetime import datetime, timezone
 import json
 import os
@@ -14,6 +15,8 @@ import sys
 from urllib.parse import urlsplit, unquote
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / 'services/image-processing'))
+from app.services.catalog_orientation import classify_rotation
 EXPECTED_ARN = 'arn:aws:iam::071788126830:user/Gautam'
 
 
@@ -101,8 +104,7 @@ def status(directory, fetch=False):
     call = modal.FunctionCall.from_id((directory / 'call-id.txt').read_text().strip())
     volume = modal.Volume.from_name('wall-e-catalog-orientation-reports')
     try:
-        result = call.get(timeout=0)
-        print(json.dumps(result))
+        call.get(timeout=0)
     except TimeoutError:
         try:
             progress = b''.join(volume.read_file(f'{directory.name}/progress.json'))
@@ -119,24 +121,37 @@ def status(directory, fetch=False):
         data = b''.join(volume.read_file(f'{directory.name}/{name}'))
         (directory / ('remote-' + name)).write_bytes(data)
     if fetch:
-        rows = [json.loads(line) for line in (directory / 'remote-results.jsonl').read_text().splitlines()]
-        sources = {source['key']: source for source in json.loads((directory / 'sources.json').read_text())}
-        assert len(rows) == len(sources) and {row['key'] for row in rows} == set(sources), 'Incomplete report'
-        threshold = json.loads((directory / 'manifest.json').read_text())['threshold']
-        for row in rows:
-            assert row['source_etag'] == sources[row['key']]['etag'], 'Source snapshot mismatch'
-            if row['status'] != 'error':
-                assert abs(sum(row['probabilities'].values()) - 1) < 0.00001
-                assert row['rotation_candidate'] == (row['pred_rotation'] != 0 and row['confidence'] >= threshold)
-        fields = ['key', 'status', 'pred_rotation', 'confidence', 'suggested_fix_rotation', 'exif_orientation', 'error']
-        for filename, selected in [('classifications.csv', rows),
-                                   ('rotation-candidates.csv', [r for r in rows if r['status'] == 'rotation_candidate']),
-                                   ('uncertain.csv', [r for r in rows if r['status'] == 'uncertain'])]:
-            with (directory / filename).open('w', newline='') as stream:
-                writer = csv.DictWriter(stream, fieldnames=fields, extrasaction='ignore')
-                writer.writeheader()
-                writer.writerows(selected)
-        print('Verified complete coverage and threshold decisions; exported review CSV files.')
+        export_results(directory)
+    else:
+        print((directory / 'remote-summary.json').read_text())
+
+
+def export_results(directory):
+    """Apply the current selection rule to saved scores without rerunning inference."""
+    rows = [json.loads(line) for line in (directory / 'remote-results.jsonl').read_text().splitlines()]
+    sources = {source['key']: source for source in json.loads((directory / 'sources.json').read_text())}
+    assert len(rows) == len(sources) and {row['key'] for row in rows} == set(sources), 'Incomplete report'
+    threshold = json.loads((directory / 'manifest.json').read_text())['threshold']
+    for row in rows:
+        assert row['source_etag'] == sources[row['key']]['etag'], 'Source snapshot mismatch'
+        if row['status'] != 'error':
+            assert abs(sum(row['probabilities'].values()) - 1) < 0.00001
+            row.update(classify_rotation(row['pred_rotation'], row['confidence'], threshold))
+    summary = json.loads((directory / 'remote-summary.json').read_text())
+    summary.update(counts=dict(Counter(row['status'] for row in rows)), decision_policy='strict_threshold_no_review')
+    (directory / 'remote-results.jsonl').write_text(''.join(json.dumps(row) + '\n' for row in rows))
+    (directory / 'remote-summary.json').write_text(json.dumps(summary, indent=2))
+    fields = ['key', 'status', 'pred_rotation', 'confidence', 'suggested_fix_rotation', 'exif_orientation', 'error']
+    for filename, selected in [('classifications.csv', rows),
+                               ('rotation-candidates.csv', [r for r in rows if r.get('rotation_candidate')])]:
+        with (directory / filename).open('w', newline='') as stream:
+            writer = csv.DictWriter(stream, fieldnames=fields, extrasaction='ignore')
+            writer.writeheader()
+            writer.writerows(selected)
+    # Remove the obsolete generated review list, retaining the complete audit log.
+    (directory / 'uncertain.csv').unlink(missing_ok=True)
+    print(json.dumps(summary))
+    print('Verified complete coverage; exported candidates strictly above threshold. No review list.')
 
 
 if __name__ == '__main__':
@@ -144,7 +159,7 @@ if __name__ == '__main__':
     sys.path = [path for path in sys.path if Path(path).resolve() != Path(__file__).resolve().parent]
     os.umask(0o077)
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('action', choices=['snapshot', 'submit', 'status', 'fetch'])
+    parser.add_argument('action', choices=['snapshot', 'submit', 'status', 'fetch', 'export'])
     parser.add_argument('directory', type=Path)
     parser.add_argument('--threshold', type=float, default=0.95)
     args = parser.parse_args()
@@ -153,5 +168,7 @@ if __name__ == '__main__':
         snapshot(args.directory, args.threshold)
     elif args.action == 'submit':
         submit(args.directory)
+    elif args.action == 'export':
+        export_results(args.directory)
     else:
         status(args.directory, fetch=args.action == 'fetch')

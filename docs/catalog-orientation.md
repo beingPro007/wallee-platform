@@ -12,12 +12,13 @@ threads, and GPU batches of 24. Torch's internal CPU pools use one thread to
 avoid nested thread oversubscription. GPU inference remains FP32. There is no
 schedule or public web endpoint, and it scales to zero after a run.
 
-The threshold defaults to 0.95. Every decodable image gets its four class
-probabilities and predicted angle (0/90/180/270). Predictions below threshold
-are `uncertain`; confident nonzero predictions are `rotation_candidate`;
-confident zero predictions are `upright`. Confidence is a model score, not a
-measured accuracy guarantee. Existing model documentation reports confident
-false positives, so candidates need review before destructive changes.
+The threshold defaults to 0.95 and comparison is strictly greater than (>).
+Every decodable image retains its four class probabilities and predicted angle
+(0/90/180/270). Nonzero predictions above threshold are `rotation_candidate`;
+zero predictions above threshold are `upright`. All other predictions are
+`skipped`, including scores exactly equal to 0.95. There is no review requirement
+or review list. The rotation selection contains only qualifying nonzero
+predictions. Confidence is a model score, not a measured accuracy guarantee.
 
 Input images are normalized using EXIF orientation before the existing
 Resize288/CenterCrop288 preprocessing. Both stored and display dimensions are
@@ -57,8 +58,10 @@ repository. The existing ingestion orientation deployment is unchanged.
 
 Fetching also checks exact snapshot coverage, source ETags, probability totals,
 and threshold decisions, then exports `classifications.csv`,
-`rotation-candidates.csv`, and `uncertain.csv` for review. These are classification
-reports; no suggested correction has been applied to any image.
+`rotation-candidates.csv`. The old `uncertain.csv` review list is removed.
+`export` reapplies the current selection policy to downloaded scores without
+inference; resumed workers also reapply it to cached results. These are
+classification reports; no suggested correction has been applied to any image.
 
 ## Completed run: 25 October 2026
 
@@ -66,11 +69,11 @@ Run `catalog-orientation-20261025-full` covered 20,786 unique paths from all 17
 current catalogs. Every path existed in the fresh S3 inventory. The 48-image
 smoke test completed without errors before the full pass was submitted.
 
-| Classification at 0.95 threshold | Images |
+| Classification with confidence > 0.95 | Images |
 | --- | ---: |
 | Upright | 13,880 |
 | Rotation candidate | 1,565 |
-| Uncertain | 5,341 |
+| Skipped | 5,341 |
 | Remaining failures | 0 |
 
 The first pass took about 32 minutes 40 seconds and encountered ten file-size
@@ -85,10 +88,13 @@ Model SHA256:
 Private local reports:
 `/home/rdxtreme/wallee-migration-backups/catalog-orientation-20261025-full/`.
 The directory includes the original snapshot, both invocation IDs, initial
-failures, final results, and review CSVs. No image correction, upscaling,
+failures, final results, and selection CSVs. No image correction, upscaling,
 S3/catalog mutation, database update, or desktop publication was performed.
 
-Validation: 26 offline Python tests passed, the live smoke report passed coverage
-and threshold checks, and all ten large-image retries succeeded. A visual spot
-check of the five smoke-test candidates found four visibly sideways scenes and
-one space scene with ambiguous orientation; this is not an accuracy estimate.
+The user subsequently selected a strict >95% rule with no review step. Saved
+scores were filtered again without GPU inference; the 1,565 qualifying candidates
+remain selected and the other 5,341 low-confidence results are skipped.
+
+Validation: 28 offline Python tests passed, including exact-threshold exclusion
+and exporting legacy scores without a review list. The live smoke report passed
+coverage checks, and all ten large-image retries succeeded.

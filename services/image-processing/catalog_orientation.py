@@ -111,6 +111,8 @@ class CatalogOrientation:
         records = {}
         for shard in sorted(folder.glob('batch-*.json')):
             for row in json.loads(shard.read_text()):
+                if row['status'] != 'error':
+                    row.update(classify_rotation(row['pred_rotation'], row['confidence'], threshold))
                 records[row['key']] = row
         pending = [s for s in sources if s['key'] not in records or records[s['key']]['status'] == 'error']
         batch_number = len(list(folder.glob('batch-*.json')))
@@ -150,6 +152,7 @@ class CatalogOrientation:
         rows = [records[s['key']] for s in sources]
         counts = dict(Counter(row['status'] for row in rows))
         summary = {"run_id": run_id, "total": len(rows), "counts": counts, "threshold": threshold,
+                   "decision_policy": "strict_threshold_no_review",
                    "state": "completed_with_errors" if counts.get('error') else "completed",
                    "predicted_rotations": dict(Counter(str(row['pred_rotation']) for row in rows if 'pred_rotation' in row)),
                    "model_sha256": self.model_sha256, "mutated_images": 0, "upscaled_images": 0}
