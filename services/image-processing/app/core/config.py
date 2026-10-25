@@ -6,13 +6,8 @@ CLASSIFIER_PRETRAINED = "laion2b_s32b_b82k"
 
 # Upscaler Settings
 UPSCALER_MODEL_WEIGHTS = "/root/weights/RealESRGAN_x2.pth"
-UPSCALER_DESKTOP_MODEL_WEIGHTS = "/root/weights/RealESRGAN_x8.pth"
 UPSCALER_SCALE = 2
 UPSCALER_BATCH_SIZE = 5
-# Desktop images processed at once. MUST stay 1: RRDBNet.forward isn't
-# thread-safe, so concurrent model.predict calls on the shared model crash the
-# container. Throughput comes from UPSCALER_PATCH_BATCH, not thread concurrency.
-DESKTOP_CONCURRENCY = int(os.getenv("DESKTOP_CONCURRENCY", "1"))
 # Parallel post-processing workers (PNG encode + upload + embed) that overlap the
 # GPU so it never stalls on CPU/network. Should be >= how many CPU stages fit in
 # one GPU-upscale time; 3 keeps the GPU the bottleneck.
@@ -24,7 +19,7 @@ DESKTOP_POST_WORKERS = int(os.getenv("DESKTOP_POST_WORKERS", "3"))
 DESKTOP_GPU_WORKERS = int(os.getenv("DESKTOP_GPU_WORKERS", "2"))
 # Patches per RealESRGAN forward pass — THE knob for GPU utilization. The model's
 # default of 4 leaves an H100 ~idle (5.7s/4K); 32 hits peak (3.7s/4K) at only
-# ~4GB VRAM. x8 auto-scales this down by 8× (huge upsampled activations).
+# ~4GB VRAM.
 UPSCALER_PATCH_BATCH = int(os.getenv("UPSCALER_PATCH_BATCH", "32"))
 
 # Path Settings
@@ -33,12 +28,7 @@ CATEGORY_EMBEDDINGS_PATH = f"{EMBEDDINGS_DIR}/category_embeddings.npy"
 CATEGORY_NAMES_PATH = f"{EMBEDDINGS_DIR}/category_names.npy"
 
 # AWS / S3 Settings
-AWS_REGION = os.getenv("AWS_DEFAULT_REGION")
 AWS_BUCKET_NAME = os.getenv("AWS_BUCKET_NAME")
-
-# Database (Supabase) settings
-SUPABASE_URL = os.getenv("SUPABASE_URL")
-SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 
 CLASSIFY_SIMILAR_THRESHOLD = 0.95
 
@@ -77,11 +67,7 @@ WALLHAVEN_SORTING = os.getenv("WALLHAVEN_SORTING", "toplist")
 # Max concurrent per-image workers inside a single ETL container.
 ETL_MAX_WORKERS = int(os.getenv("ETL_MAX_WORKERS", "5"))
 
-# Optional session slug — when set, images are filed under a fixed
-# category (premium mode) instead of being classified.
-SESSION_SLUG = os.getenv("SESSION_SLUG", "")
-
-# Persistent data dir (Modal Volume) holding cookies.txt / instaloader session.
+# Persistent data dir (Modal Volume) holding Instagram cookies.
 WORKER_DATA_DIR = os.getenv("WORKER_DATA_DIR", "/data")
 
 # Accepted image mime types for upload.

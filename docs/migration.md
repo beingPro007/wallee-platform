@@ -12,6 +12,8 @@
 | Classifier text-search endpoint and schema | ✗ Removed | No pipeline callers |
 | Cloudflare Supabase proxy | ✗ Removed | Not used by the processing services |
 | Earlier Gradio classifier | ✗ Removed | Separate older implementation |
+| Unused desktop queue / x8 model path | ✗ Removed | No callers; active desktop jobs use repeated x2 upscaling |
+| Unused uploader dependencies and starter assets | ✗ Removed | Not referenced by the pipeline UI |
 | Experimental notebooks and pickle models | ✗ Removed | Not loaded by the active orientation service |
 | Old `paths.npy` / `vectors.npy` indexes | ✗ Removed | Not loaded by the active classifier |
 | Mobile profile, billing, favorites, and recommendation SQL | ✗ Removed | Unrelated mobile functionality |

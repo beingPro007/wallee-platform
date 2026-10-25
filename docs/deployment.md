@@ -22,7 +22,7 @@ Keep the existing named secret `wallee-supabase-secrets` and Volumes `wall-e-wor
 
 ## Model artifacts
 
-The four ignored local assets are the two RealESRGAN weight files and the classifier's category names/embeddings. `artifacts.json` records hashes and sizes.
+The three ignored local assets are the RealESRGAN x2 weights and the classifier's category names/embeddings. Both standard and desktop upscaling use x2; desktop processing repeats it to reach 4K/8K. `artifacts.json` records hashes and sizes.
 
 ```sh
 python3 scripts/assets.py restore --source-root /home/rdxtreme
@@ -41,6 +41,6 @@ For the existing Vercel project `insta-s3-client-uploader`, set the Git source t
 
 The retained SQL covers `home_sections` for the pipeline UI, dimensions on `upscale_queue`, and the wallpaper file-path constraint. These are historical changes for an existing database, not a complete bootstrap schema. The file-path constraint migration deletes duplicate rows; review it before executing it. No SQL is run automatically.
 
-The processing service needs `wallpapers` (image vectors/category/file path), `upscale_queue` (job state and S3 paths), and the `match_wallpapers` RPC for deduplication. Its older desktop-queue helper also refers to `desktop_upscale_queue`; the worker's normal desktop path calls the upscaler directly.
+The processing service needs `wallpapers` (image vectors/category/file path), `upscale_queue` (job state and S3 paths), and the `match_wallpapers` RPC for deduplication. Desktop jobs call the upscaler directly and do not need a separate desktop queue table.
 
 The optional `sync` utility repairs the wallpaper database against S3 metadata and remains part of image-processing maintenance. It is not a standalone search service. Prune/backfill defaults to dry run; inspect its results before `--apply`.

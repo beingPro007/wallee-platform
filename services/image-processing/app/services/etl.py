@@ -33,7 +33,7 @@ from ..utils.clients import get_supabase_client, get_s3_client
 
 class ETLService:
     """
-    ETL worker: pull media from Instagram / Pinterest, upload the raw image to
+    ETL worker: pull media from Instagram / Pinterest / Wallhaven, upload the raw image to
     S3, generate a webp thumbnail, classify it into a category (or use a fixed
     session slug), and enqueue an `upscale_queue` row.
 
@@ -186,7 +186,7 @@ class ETLService:
         except Exception:
             return original_bytes
 
-    def _check_duplicate(self, file_bytes: bytes, filename: str, mime_type: str) -> dict:
+    def _check_duplicate(self, file_bytes: bytes, filename: str) -> dict:
         """Ask the classifier (via native Modal .remote()) whether a
         near-identical wallpaper already exists. Fails open (not-duplicate) on
         any error so ingest is never blocked."""
@@ -200,7 +200,7 @@ class ETLService:
             print(f"⚠️ Dedup check failed ({e}) — treating as unique")
             return {"duplicate": False}
 
-    def _classify_image(self, file_bytes: bytes, filename: str, mime_type: str) -> str:
+    def _classify_image(self, file_bytes: bytes, filename: str) -> str:
         """Classify via native Modal .remote() and return a category label."""
         try:
             data = self._classifier().classify_rpc.remote(file_bytes, filename)
@@ -275,7 +275,7 @@ class ETLService:
 
         # ── De-dup: skip before doing any S3 work if a near-identical
         #    wallpaper already exists.
-        dup = self._check_duplicate(resized_bytes, filename, mime_type)
+        dup = self._check_duplicate(resized_bytes, filename)
         if dup.get("duplicate"):
             sim = dup.get("similarity")
             match = dup.get("match_file_path")
@@ -331,7 +331,7 @@ class ETLService:
             category = session_slug
             s3_key = f"raw_images/{session_slug}/{filename}"
         else:
-            category = self._classify_image(resized_bytes, filename, mime_type)
+            category = self._classify_image(resized_bytes, filename)
             s3_key = f"raw_images/{category}/{filename}"
 
         self._upload_to_s3(s3_key, original_bytes, mime_type)
@@ -394,9 +394,7 @@ class ETLService:
         return match.group(2) if match else None
 
     def _download_instagram(self, url: str, temp_dir: Path) -> Path:
-        # instaloader's post-by-shortcode fetch is currently broken by an
-        # Instagram API change (BadResponseException), so use gallery-dl (kept
-        # up to date) with Instagram cookies. Provide the cookies with:
+        # Instagram downloads use gallery-dl with login cookies. Provide them with:
         #   python3 ~/export_ig_cookies.py         # from Firefox, locally
         #   modal volume put wall-e-worker-data ~/ig_cookies.txt ig_cookies.txt
         download_path = temp_dir / "instagram"

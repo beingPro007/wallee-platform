@@ -23,7 +23,7 @@ def main():
     env = dict(os.environ, MODAL_PROFILE=args.profile)
     services = ['classifier', 'orientation', 'upscaler', 'worker'] if args.service == 'all' else [args.service]
     for name in services:
-        needed = {'classifier': ['embeddings/category_names.npy', 'embeddings/category_embeddings.npy'], 'upscaler': ['RealESRGAN/weights/RealESRGAN_x2.pth', 'RealESRGAN/weights/RealESRGAN_x8.pth']}.get(name, [])
+        needed = {'classifier': ['embeddings/category_names.npy', 'embeddings/category_embeddings.npy'], 'upscaler': ['RealESRGAN/weights/RealESRGAN_x2.pth']}.get(name, [])
         missing = [p for p in needed if not (SERVICE / p).is_file()]
         if missing:
             parser.error(f'Missing assets for {name}: {missing}. See docs/deployment.md.')

@@ -1,8 +1,7 @@
 "use server"
 
 import { s3Client } from "@/lib/s3"
-import { ListObjectsV2Command, CopyObjectCommand, DeleteObjectCommand, GetObjectCommand } from "@aws-sdk/client-s3"
-import { getSignedUrl } from "@aws-sdk/s3-request-presigner"
+import { ListObjectsV2Command, CopyObjectCommand, DeleteObjectCommand } from "@aws-sdk/client-s3"
 
 const BUCKET_NAME = process.env.AWS_BUCKET_NAME!
 

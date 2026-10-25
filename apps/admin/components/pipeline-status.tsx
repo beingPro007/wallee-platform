@@ -27,7 +27,7 @@ export function PipelineStatus() {
     return () => clearInterval(t)
   }, [refresh])
 
-  const handleBuild = async (id: string, slug: string) => {
+  const handleBuild = async (id: string) => {
     setBuilding(id)
     setMessage((m) => ({ ...m, [id]: "" }))
     try {
@@ -73,7 +73,7 @@ export function PipelineStatus() {
               <Button
                 size="sm"
                 disabled={!s.ready || building === s.id}
-                onClick={() => handleBuild(s.id, s.slug)}
+                onClick={() => handleBuild(s.id)}
               >
                 {building === s.id ? "Building…" : "Build JSON"}
               </Button>

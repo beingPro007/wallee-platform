@@ -5,11 +5,6 @@
     "bytes": 67061725
   },
   {
-    "path": "services/image-processing/RealESRGAN/weights/RealESRGAN_x8.pth",
-    "sha256": "8b72fb469d12f05a4770813d2603eb1b550f40df6fb8b37d6c7bc2db3d2bff5e",
-    "bytes": 67189359
-  },
-  {
     "path": "services/image-processing/embeddings/category_embeddings.npy",
     "sha256": "0ce05e237dd17553e0e158f0277856b8dd42d76cacf71d6ada4d72e754ea6f89",
     "bytes": 43136

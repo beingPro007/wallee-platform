@@ -10,7 +10,7 @@ python3 -m venv .venv
 make test PYTHON=.venv/bin/python
 ```
 
-All 10 tests passed, including a clean-checkout run without private environment files or model binaries:
+All 12 tests passed, including a clean-checkout run without private environment files or model binaries:
 
 - Classification routing, original image bytes, WebP thumbnail generation, and pending queue record.
 - Fixed session category bypassing category prediction.
@@ -22,6 +22,8 @@ All 10 tests passed, including a clean-checkout run without private environment 
 - Final-upload failure preserving the original image and marking the job failed.
 - Missing input marking the queue job `failed_missing_file` without running the model.
 - Imports of all five remaining Modal entry points.
+- Direct desktop PNG, thumbnail, manifest, and original cleanup through the repeated-x2 path.
+- Upscaler initialization without an x8 model or weight requirement.
 
 Image handling and orchestration execute real service code. Remote classifiers, GPU prediction, S3, Supabase, and the optional Vercel callback are replaced at their boundaries. These tests do not establish model accuracy or live infrastructure availability.
 
@@ -60,4 +62,12 @@ The optional uploader session-JSON callback and live desktop-review path were no
 
 ## Cleanup checks
 
-Python syntax, tracked JSON, credential-pattern checks, ignored environment files, and checksums for the four required model artifacts passed. The earlier admin build and TypeScript checks passed; the cleanup did not modify its source. The removed encoder, proxy, notebook models, and old search indexes are no longer runtime or CI dependencies.
+Python syntax, tracked JSON, credential-pattern checks, ignored environment files, and checksums for the three required model artifacts passed. The admin production build and TypeScript checks passed after removing unused dependencies and enabling unused-local/parameter checks. The removed encoder, proxy, notebook models, and old search indexes are no longer runtime or CI dependencies.
+
+## Dead-code cleanup follow-up
+
+Removed the uncalled desktop-queue/x8 implementation, its extra model initialization and weight requirement, unused configuration and imports, and unused runtime packages (Instaloader, OpenCV, python-dotenv, aiohttp). The live desktop path remains repeated x2 upscaling to 4K/8K. The image build now copies the model code separately from its weights.
+
+The admin retains 11 direct runtime dependencies after 45 unused declarations were removed. The lockfile dropped 135 packages, with no version changes to retained packages. Removed unreferenced starter SVGs, invalid icon links, unused Google Font initialization, unused state/parameters, and unused imports. The production build no longer requests Google Fonts.
+
+No production redeployment or new live image writes were performed during this follow-up. The automatic queue-dispatch issue from the earlier live test remains open.

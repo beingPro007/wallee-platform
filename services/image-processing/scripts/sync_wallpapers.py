@@ -34,7 +34,6 @@ import io
 import os
 import sys
 import time
-import json
 from typing import Optional
 
 import requests

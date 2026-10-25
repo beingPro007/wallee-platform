@@ -6,7 +6,6 @@ import { getSupabaseClient } from "@/lib/supabase/client"
 import { Button } from "@/components/ui/button"
 
 export default function Home() {
-  const [session, setSession] = useState(null)
   const [loading, setLoading] = useState(true)
   const router = useRouter()
   const supabase = getSupabaseClient()
@@ -16,7 +15,6 @@ export default function Home() {
       const {
         data: { session },
       } = await supabase.auth.getSession()
-      setSession(session)
       setLoading(false)
 
       if (session) {
@@ -39,9 +37,7 @@ export default function Home() {
       </div>
 
       <div className="flex gap-4">
-        {/* <Button onClick={() => router.push("/auth/sign-up")} size="lg">
-          Sign Up
-        </Button> */}
+
         <Button onClick={() => router.push("/auth/sign-in")} variant="outline" size="lg">
           Sign In
         </Button>

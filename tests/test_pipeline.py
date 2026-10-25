@@ -7,6 +7,7 @@ import asyncio
 import importlib
 import io
 import logging
+import os
 from pathlib import Path
 import sys
 import tempfile
@@ -218,6 +219,55 @@ class PipelineTests(unittest.TestCase):
         self.assertIsNone(asyncio.run(worker._process_uuid('job-1')))
         self.assertEqual(self.db.rows['upscale_queue'][0]['status'], 'failed_missing_file')
         worker.model.predict.assert_not_called()
+
+    def test_direct_desktop_output_uses_x2_pipeline(self):
+        for quality, target in [('4k', (900, 600)), ('8k', (1200, 800))]:
+            with self.subTest(quality=quality):
+                Image.new('RGB', (900, 600)).save(self.image)
+                result = self.ingest(source='wallhaven')
+                worker = self.upscaler()
+                worker.desktop_pool = [worker.model]
+                worker._free_vram = Mock()
+                with patch('app.services.upscaler.DESKTOP_TARGET_4K', (900, 600)), patch(
+                    'app.services.upscaler.DESKTOP_TARGET_8K', (1200, 800)
+                ):
+                    keys = asyncio.run(worker.upscale_desktop_direct(
+                        [{'raw_s3_key': result['raw_s3_key'], 'category': 'desktop'}],
+                        quality=quality,
+                    ))
+                self.assertEqual(keys, ['desktop_wallpapers/desktop/sample.png'])
+                image = Image.open(io.BytesIO(self.s3.objects[keys[0]]))
+                self.assertEqual((image.format, image.size), ('PNG', target))
+                self.assertNotIn(result['raw_s3_key'], self.s3.objects)
+                self.assertIn('thumbs/desktop/sample.webp', self.s3.objects)
+                self.assertIn(keys[0].encode(), self.s3.objects['wallpapers.json'])
+                self.assertEqual(self.db.rows, {})
+                worker._embed_and_register_wallpaper.assert_awaited_once()
+                if quality == '4k':
+                    worker.model.predict.assert_not_called()
+                else:
+                    worker.model.predict.assert_called_once()
+
+    def test_upscaler_startup_requires_only_x2_weights(self):
+        created = []
+
+        def model_factory(device, scale):
+            model = Mock()
+            created.append((scale, model))
+            return model
+
+        fake_model_module = SimpleNamespace(RealESRGAN=model_factory)
+        with patch.dict(sys.modules, {'RealESRGAN.RealESRGAN.model': fake_model_module}), patch.dict(
+            os.environ, {'EMBED_ON_UPSCALE': '0'}
+        ), patch('app.services.upscaler.get_s3_client', return_value=self.s3), patch(
+            'app.services.upscaler.get_supabase_client', return_value=self.db
+        ):
+            worker = UpscalerService()
+        self.assertTrue(created)
+        self.assertEqual({scale for scale, model in created}, {2})
+        for scale, model in created:
+            model.load_weights.assert_called_once_with('/root/weights/RealESRGAN_x2.pth', download=False)
+        self.assertEqual(len(worker.desktop_pool), len(created))
 
     def test_remaining_modal_entrypoints_import(self):
         for name in ['main', 'worker_modal', 'orientation', 'upscaler', 'sync']:

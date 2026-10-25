@@ -12,11 +12,11 @@ import torch
 
 from ..core.config import (
     UPSCALER_SCALE,
+    CLASSIFIER_MODEL_NAME,
+    CLASSIFIER_PRETRAINED,
     UPSCALER_MODEL_WEIGHTS,
-    UPSCALER_DESKTOP_MODEL_WEIGHTS,  # Path to RealESRGAN_x8.pth
     AWS_BUCKET_NAME,
     UPSCALER_BATCH_SIZE,
-    DESKTOP_CONCURRENCY,
     DESKTOP_POST_WORKERS,
     DESKTOP_GPU_WORKERS,
     UPSCALER_PATCH_BATCH,
@@ -29,17 +29,13 @@ from ..utils.clients import get_supabase_client, get_s3_client
 DESKTOP_TARGET_8K: Tuple[int, int] = (7680, 4320)   # 8K UHD  (16:9)
 DESKTOP_TARGET_4K: Tuple[int, int] = (3840, 2160)   # 4K UHD  (16:9)
 
-# Tile size for tiled inference — reduce if VRAM < 8 GB
-TILE_SIZE = 512
-TILE_PAD  = 32
-
 
 class UpscalerService:
     """
     Upscales wallpaper images using RealESRGAN.
 
-    - Standard queue  → x4 model  → JPEG (mobile/web)
-    - Desktop queue   → x8 model  → PNG  (8K lossless, then downsampled if needed)
+    - Standard queue → x2 model → JPEG.
+    - Direct desktop jobs → repeated x2 passes → PNG fitted to 4K / 8K.
     """
 
     def __init__(self, device: str = "cuda"):
@@ -65,10 +61,6 @@ class UpscalerService:
             extra.load_weights(UPSCALER_MODEL_WEIGHTS, download=False)
             self.desktop_pool.append(extra)
 
-        # ── Desktop model (x8, 8K) — kept for the queue-based path ────────
-        self.desktop_model = RealESRGAN(self.device, scale=8)
-        self.desktop_model.load_weights(UPSCALER_DESKTOP_MODEL_WEIGHTS, download=False)
-
         # ── CLIP image encoder (writes wallpapers.embedding for similarity)
         #    Disable via EMBED_ON_UPSCALE=0 if VRAM is tight; the dedicated
         #    backfill script will still catch up missing rows later.
@@ -78,8 +70,8 @@ class UpscalerService:
         if self.embed_enabled:
             try:
                 import open_clip
-                clip_name = os.getenv("CLIP_MODEL_NAME", "ViT-L-14")
-                clip_pretrained = os.getenv("CLIP_PRETRAINED", "laion2b_s32b_b82k")
+                clip_name = os.getenv("CLIP_MODEL_NAME", CLASSIFIER_MODEL_NAME)
+                clip_pretrained = os.getenv("CLIP_PRETRAINED", CLASSIFIER_PRETRAINED)
                 self.logger.info(f"⚙️  Loading CLIP {clip_name}/{clip_pretrained}…")
                 m, _, pp = open_clip.create_model_and_transforms(
                     clip_name, pretrained=clip_pretrained
@@ -93,7 +85,7 @@ class UpscalerService:
 
         self.logger.info(
             f"✅ Upscaler Service Ready | device={self.device} | "
-            f"std=x{UPSCALER_SCALE} | desktop=x8 | embed={self.embed_enabled}"
+            f"std=x{UPSCALER_SCALE} | desktop=iterated-x2 | embed={self.embed_enabled}"
         )
 
     # ─────────────────────────────────────────────────────────────────────
@@ -278,7 +270,7 @@ class UpscalerService:
             self.logger.error(f"⚠️  embed/insert failed for {file_path}: {e}")
 
     # ─────────────────────────────────────────────────────────────────────
-    # Standard queue processing  (x4, JPEG)
+    # Standard queue processing (x2, JPEG)
     # ─────────────────────────────────────────────────────────────────────
 
     async def _process_uuid(self, uuid: str) -> Optional[str]:
@@ -318,7 +310,7 @@ class UpscalerService:
                 )
                 return None
 
-            # 4. Upscale (x4) — big patch batch to keep the GPU busy
+            # 4. Upscale (x2) — big patch batch to keep the GPU busy
             self.logger.info(f"🎨 {uuid}: Upscaling x{UPSCALER_SCALE}...")
             sr_image = await asyncio.to_thread(self.model.predict, image, UPSCALER_PATCH_BATCH)
 
@@ -358,174 +350,6 @@ class UpscalerService:
             except Exception:
                 pass
             return None
-
-    # ─────────────────────────────────────────────────────────────────────
-    # Desktop queue processing  (x8, PNG, 8K)
-    # ─────────────────────────────────────────────────────────────────────
-
-    async def _process_desktop_uuid(
-        self,
-        uuid: str,
-        *,
-        target_resolution: Tuple[int, int] = DESKTOP_TARGET_8K,
-    ) -> Optional[str]:
-        """
-        Process a single desktop upscale job:
-          1. x8 RealESRGAN  →  raw super-resolution output
-          2. Lanczos downscale to target (8K / 4K) if the x8 result overshoots
-          3. Save as lossless PNG  →  upload to  desktop_wallpapers/<original_name>.png
-        """
-        if not uuid:
-            return None
-        try:
-            # 1. Fetch metadata
-            resp = await self._db_execute(
-                self.supabase.table("desktop_upscale_queue")
-                .select("raw_s3_key,category")
-                .eq("id", uuid)
-            )
-            if not resp.data:
-                self.logger.warning(f"⚠️  Desktop ID {uuid} not found")
-                return None
-
-            raw_key = resp.data[0].get("raw_s3_key")
-            category = resp.data[0].get("category")
-            if not raw_key:
-                return None
-
-            # 2. Mark processing
-            await self.execute_with_retry(
-                self.supabase.table("desktop_upscale_queue").update({"status": "processing"}).eq("id", uuid),
-                "Desktop Mark Processing",
-            )
-
-            # 3. Download
-            self.logger.info(f"⬇️  [desktop] {uuid}: {raw_key}")
-            try:
-                image = await self._download_image(raw_key)
-            except FileNotFoundError:
-                self.logger.error(f"❌ [desktop] File not found: {raw_key}")
-                await self.execute_with_retry(
-                    self.supabase.table("desktop_upscale_queue")
-                    .update({"status": "failed_missing_file"})
-                    .eq("id", uuid),
-                    "Desktop Mark Missing",
-                )
-                return None
-
-            src_w, src_h = image.size
-            self.logger.info(f"🖼️  Source: {src_w}×{src_h} | target: {target_resolution[0]}×{target_resolution[1]}")
-
-            # 4. x8 Upscale  (tiled to avoid OOM on large anime artwork)
-            self.logger.info(f"🎨 [desktop] {uuid}: Upscaling x8 (tile={TILE_SIZE})...")
-            sr_image = await asyncio.to_thread(
-                self._predict_tiled,
-                self.desktop_model,
-                image,
-                TILE_SIZE,
-                TILE_PAD,
-            )
-
-            sr_w, sr_h = sr_image.size
-            self.logger.info(f"✅ x8 output: {sr_w}×{sr_h}")
-
-            # 5. Fit to target (downscale only if over 8K)
-            final_image = self._fit_to_target(sr_image, target_resolution)
-            final_w, final_h = final_image.size
-            self.logger.info(f"📐 Final size: {final_w}×{final_h}")
-
-            # 6. Upload as lossless PNG
-            out_key = self._build_output_key(raw_key, prefix="desktop_wallpapers", ext=".png")
-            size_mb = (await self._upload_image(final_image, out_key, fmt="PNG")) / 1024 / 1024
-            self.logger.info(f"⬆️  [desktop] {uuid}: {out_key}  ({size_mb:.2f} MB)")
-
-            # 7. Mark complete
-            await self.execute_with_retry(
-                self.supabase.table("desktop_upscale_queue")
-                .update({
-                    "status": "completed",
-                    "upscaled_s3_key": out_key,
-                    "width": final_w,
-                    "height": final_h,
-                })
-                .eq("id", uuid),
-                "Desktop Mark Completed",
-            )
-
-            # 8. Embed + register in wallpapers table (best-effort)
-            await self._embed_and_register_wallpaper(out_key, category, final_image)
-
-            # 9. Delete raw
-            await asyncio.to_thread(self.s3.delete_object, Bucket=self.bucket_name, Key=raw_key)
-            return out_key
-
-        except Exception as e:
-            self.logger.error(f"❌ [desktop] Error processing {uuid}: {e}", exc_info=True)
-            try:
-                await self.execute_with_retry(
-                    self.supabase.table("desktop_upscale_queue").update({"status": "failed"}).eq("id", uuid),
-                    "Desktop Mark Failed",
-                )
-            except Exception:
-                pass
-            return None
-
-    @staticmethod
-    def _predict_tiled(
-        model,
-        image: Image.Image,
-        tile: int = 512,
-        pad: int = 32,
-    ) -> Image.Image:
-        """
-        Run model.predict() in tiles to stay within VRAM limits.
-
-        Each tile is padded by `pad` pixels on all sides to eliminate
-        seam artifacts at tile boundaries (the padding is cropped before
-        stitching back).
-        """
-        import numpy as np
-
-        scale = model.scale
-        w, h  = image.size
-        img_np = np.array(image)
-
-        out_h, out_w = h * scale, w * scale
-        out_np = np.zeros((out_h, out_w, 3), dtype=np.uint8)
-
-        for y in range(0, h, tile):
-            for x in range(0, w, tile):
-                # Source tile coords (with padding, clamped to image bounds)
-                x0 = max(x - pad, 0)
-                y0 = max(y - pad, 0)
-                x1 = min(x + tile + pad, w)
-                y1 = min(y + tile + pad, h)
-
-                tile_img  = Image.fromarray(img_np[y0:y1, x0:x1])
-                tile_sr   = model.predict(tile_img)
-                tile_sr_np = np.array(tile_sr)
-
-                # How much padding was actually added on each side?
-                left_pad   = (x - x0) * scale
-                top_pad    = (y - y0) * scale
-                right_pad  = (x1 - min(x + tile, w)) * scale
-                bottom_pad = (y1 - min(y + tile, h)) * scale
-
-                # Crop padding from SR tile
-                sr_h_tile, sr_w_tile = tile_sr_np.shape[:2]
-                cropped = tile_sr_np[
-                    top_pad : sr_h_tile - bottom_pad if bottom_pad else sr_h_tile,
-                    left_pad : sr_w_tile - right_pad  if right_pad  else sr_w_tile,
-                ]
-
-                # Destination coords in output image
-                out_x0 = x * scale
-                out_y0 = y * scale
-                out_x1 = out_x0 + cropped.shape[1]
-                out_y1 = out_y0 + cropped.shape[0]
-                out_np[out_y0:out_y1, out_x0:out_x1] = cropped
-
-        return Image.fromarray(out_np)
 
     # ─────────────────────────────────────────────────────────────────────
     # Batch runners
@@ -606,41 +430,9 @@ class UpscalerService:
 
         self.logger.info("🏁 Standard batch finished.")
 
-    async def upscale_for_desktop(
-        self,
-        ids: List[str],
-        *,
-        quality: str = "8k",   # "8k" | "4k"
-    ) -> None:
-        """
-        Process a batch of desktop upscale jobs using the x8 model.
-
-        quality="8k"  →  target 7680×4320 (PNG, lossless)
-        quality="4k"  →  target 3840×2160 (PNG, lossless)
-        """
-        target = DESKTOP_TARGET_8K if quality == "8k" else DESKTOP_TARGET_4K
-        total  = len(ids)
-        self.logger.info(f"🖥️  Desktop batch: {total} jobs | target={quality.upper()} {target[0]}×{target[1]}")
-
-        for i in range(0, total, UPSCALER_BATCH_SIZE):
-            chunk = ids[i : i + UPSCALER_BATCH_SIZE]
-            self.logger.info(
-                f"📦 Desktop chunk {i // UPSCALER_BATCH_SIZE + 1}: "
-                f"jobs {i + 1}–{i + len(chunk)} / {total}"
-            )
-            results = await asyncio.gather(
-                *[self._process_desktop_uuid(uid, target_resolution=target) for uid in chunk],
-                return_exceptions=True,
-            )
-            successful = [r for r in results if isinstance(r, str)]
-            if successful:
-                await self.update_manifest(successful)
-
-        self.logger.info("🏁 Desktop batch finished.")
-
     # ─────────────────────────────────────────────────────────────────────
-    # Table-free desktop upscale — driven directly by the ETL worker (no
-    # desktop_upscale_queue row). Each item: {"raw_s3_key", "category"}.
+    # Direct desktop upscale, driven by the ETL worker.
+    # Each item: {"raw_s3_key", "category"}.
     # ─────────────────────────────────────────────────────────────────────
 
     def _free_vram(self) -> None:
@@ -677,9 +469,8 @@ class UpscalerService:
 
     def _upscale_to_target(self, model, image: Image.Image, target: Tuple[int, int]) -> Image.Image:
         """GPU stage (runs in a worker thread using its OWN model copy, so several
-        can run concurrently). Iterate x2 until ≥ target, then fit down. x8
-        overshoots wildly (1920→15360) and wastes time; chaining x2 reaches ~8K
-        fast on full-res intermediates. The model patches internally — no tiling."""
+        can run concurrently). Repeat x2 until the target is reached, then fit
+        down while preserving the aspect ratio. The model handles its own patches."""
         tw, th = target
         if image.width >= tw and image.height >= th:
             return self._fit_to_target(image, target)
